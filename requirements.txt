@@ -1,0 +1,6 @@
+torch
+torchvision
+matplotlib
+opencv-python
+albumentations
+streamlit
