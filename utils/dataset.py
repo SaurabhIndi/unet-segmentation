@@ -52,14 +52,13 @@ class HeLaDataset(Dataset):
         self.transform = transform
 
         # Path to original image data
-        # Images are directly in the sequence folder: 01/t000.tif
+        # Images are directly in the sequence folder: data_root/01/t000.tif
         self.image_files = sorted(glob(os.path.join(self.sequence_path, 't*.tif')))
 
         # Path to Silver Truth (ST) segmentation masks
-        # Masks are in 0N_ST/SEG/man_segT*.tif
-        # Using ST for more complete annotations for training.
-        # If you prefer sparser Gold Truth (GT) masks, change '0N_ST' to '0N_GT'.
-        self.mask_files = sorted(glob(os.path.join(self.sequence_path, f'{self.sequence_name}_ST', 'SEG', 'man_segT*.tif')))
+        # Masks are in data_root/01_ST/SEG/man_seg*.tif
+        # Corrected glob pattern from 'man_segT*.tif' to 'man_seg*.tif'
+        self.mask_files = sorted(glob(os.path.join(data_root, f'{self.sequence_name}_ST', 'SEG', 'man_seg*.tif')))
         
         self.samples = []
         # Create a dictionary for quick lookup of mask paths by temporal index
@@ -99,30 +98,15 @@ class HeLaDataset(Dataset):
 
 # Example Usage (for testing your dataset class)
 if __name__ == '__main__':
-    # IMPORTANT: Replace '/path/to/your/downloaded/DIC-C2DH-HeLa' with the actual
+    # IMPORTANT: Replace './data/raw/DIC-C2DH-HeLa' with the actual
     # path where you extracted the DIC-C2DH-HeLa.zip file.
     # It should point to the directory containing '01', '02', etc.
-    # For example, if you extracted DIC-C2DH-HeLa.zip into `unet_project/data/raw`,
-    # then `data_root` would be `unet_project/data/raw/DIC-C2DH-HeLa`.
+    # Based on your previous output, it seems your 'DIC-C2DH-HeLa' folder
+    # is inside a 'train' folder. So, adjust YOUR_DATA_ROOT accordingly.
     
-    # You will need to extract the zip files first.
-    # For instance, if you extracted DIC-C2DH-HeLa.zip into `data/raw/DIC-C2DH-HeLa`,
-    # then your `data_root` variable will be:
-    # `data_root = './data/raw/DIC-C2DH-HeLa'` # Adjust this path!
-    
-    # Make sure your structure looks like this:
-    # YOUR_DATA_ROOT/
-    # ├── 01/
-    # │   ├── t000.tif
-    # │   ├── ...
-    # │   └── 01_ST/
-    # │       └── SEG/
-    # │           ├── man_seg000.tif
-    # │           └── ...
-    # ├── 02/
-    # │   ├── ...
-    # 
-    
+    # Example: if your full path to 01, 01_ST etc is:
+    # C:\Users\saura\OneDrive\Documents\GitHub\unet-segmentation\data\raw\train\DIC-C2DH-HeLa\01
+    # Then YOUR_DATA_ROOT should be:
     YOUR_DATA_ROOT = './data/raw/train/DIC-C2DH-HeLa' # <<<--- ADJUST THIS PATH TO YOUR EXTRACTION LOCATION!
     
     # Using '01' as an example sequence name
