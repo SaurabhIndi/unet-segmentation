@@ -57,12 +57,12 @@ class HeLaDataset(Dataset):
 
         # Path to Silver Truth (ST) segmentation masks
         # Masks are in data_root/01_ST/SEG/man_seg*.tif
-        # Corrected glob pattern from 'man_segT*.tif' to 'man_seg*.tif'
         self.mask_files = sorted(glob(os.path.join(data_root, f'{self.sequence_name}_ST', 'SEG', 'man_seg*.tif')))
         
         self.samples = []
         # Create a dictionary for quick lookup of mask paths by temporal index
-        mask_map = {os.path.basename(f)[8:-4]: f for f in self.mask_files}
+        # Corrected slicing from [8:-4] to [7:-4] for 'man_segXXX.tif'
+        mask_map = {os.path.basename(f)[7:-4]: f for f in self.mask_files}
 
         for img_path in self.image_files:
             # Extract temporal index from image filename (e.g., '000' from 't000.tif')
