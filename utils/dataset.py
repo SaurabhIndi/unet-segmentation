@@ -36,63 +36,43 @@ class ToTensor:
 
         return image_tensor, mask_tensor
 
+
+
 class HeLaDataset(Dataset):
     def __init__(self, data_root, sequence_name, transform=None):
-        """
-        Args:
-            data_root (str): Root directory containing the '01', '02' sequence folders.
-                             E.g., if DIC-C2DH-HeLa is extracted directly into 'data/raw/',
-                             then data_root would be 'data/raw/DIC-C2DH-HeLa'.
-            sequence_name (str): The specific sequence folder (e.g., '01', '02').
-            transform (callable, optional): Optional transform to be applied on a sample.
-        """
         self.data_root = data_root
-        self.sequence_name = sequence_name
         self.sequence_path = os.path.join(data_root, sequence_name)
+        
+        self.images_path = os.path.join(self.sequence_path) # Images are directly in the sequence folder (e.g., data/raw/train/DIC-C2DH-HeLa/01)
+        # Masks are typically in a separate folder like 01_GT/SEG under the main data_root
+        self.masks_path = os.path.join(data_root, sequence_name + '_ST', 'SEG')
+
+        self.image_files = sorted([f for f in os.listdir(self.images_path) if f.endswith('.tif')])
+        self.mask_files = sorted([f for f in os.listdir(self.masks_path) if f.endswith('.tif')])
+
+        assert len(self.image_files) == len(self.mask_files), "Number of images and masks must be equal."
+
         self.transform = transform
 
-        # Path to original image data
-        # Images are directly in the sequence folder: data_root/01/t000.tif
-        self.image_files = sorted(glob(os.path.join(self.sequence_path, 't*.tif')))
-
-        # Path to Silver Truth (ST) segmentation masks
-        # Masks are in data_root/01_ST/SEG/man_seg*.tif
-        self.mask_files = sorted(glob(os.path.join(data_root, f'{self.sequence_name}_ST', 'SEG', 'man_seg*.tif')))
-        
-        self.samples = []
-        # Create a dictionary for quick lookup of mask paths by temporal index
-        # Corrected slicing from [8:-4] to [7:-4] for 'man_segXXX.tif'
-        mask_map = {os.path.basename(f)[7:-4]: f for f in self.mask_files}
-
-        for img_path in self.image_files:
-            # Extract temporal index from image filename (e.g., '000' from 't000.tif')
-            temporal_idx = os.path.basename(img_path)[1:-4]
-            
-            # Check if a corresponding mask exists in the Silver Truth
-            if temporal_idx in mask_map:
-                mask_path = mask_map[temporal_idx]
-                self.samples.append((img_path, mask_path))
-        
-        if not self.samples:
-            print(f"Warning: No matching image-mask pairs found for sequence '{sequence_name}' in '{self.sequence_path}'. Please check paths and file names.")
-            print(f"Number of image files found: {len(self.image_files)}")
-            print(f"Number of mask files found (ST): {len(self.mask_files)}")
-
-
     def __len__(self):
-        return len(self.samples)
+        return len(self.image_files)
 
     def __getitem__(self, idx):
-        img_path, mask_path = self.samples[idx]
+        image_name = self.image_files[idx]
+        mask_name = self.mask_files[idx]
 
-        # Load image (assuming grayscale)
-        image = Image.open(img_path).convert('L') 
-        
-        # Load mask as 16-bit to preserve labels, even if values are low
-        mask = Image.open(mask_path).convert('I;16') 
+        image_path = os.path.join(self.images_path, image_name)
+        mask_path = os.path.join(self.masks_path, mask_name)
+
+        # Open image and mask as grayscale
+        # Ensure 'L' for grayscale if your images are 8-bit or need to be converted to single channel
+        image = Image.open(image_path).convert('L')
+        mask = Image.open(mask_path).convert('L')
 
         if self.transform:
-            image, mask = self.transform(image, mask)
+            # Apply transform to image and mask separately
+            image = self.transform(image)
+            mask = self.transform(mask)
 
         return image, mask
 
