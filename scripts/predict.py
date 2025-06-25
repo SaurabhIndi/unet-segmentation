@@ -179,15 +179,18 @@ def calculate_iou(predicted_mask, ground_truth_mask):
     if isinstance(ground_truth_mask, torch.Tensor):
         ground_truth_mask = ground_truth_mask.cpu().numpy()
 
-    # Ensure masks are binary (0 or 1)
-    predicted_mask = (predicted_mask > 0.5).astype(np.uint8) # Threshold if not already binary
-    ground_truth_mask = (ground_truth_mask > 0.5).astype(np.uint8)
+    # Ensure predicted_mask is binary (0 or 1) by thresholding at 0.5
+    predicted_mask = (predicted_mask > 0.5).astype(np.uint8)
+
+    # Ensure ground_truth_mask is binary: convert any non-zero value to 1 (foreground)
+    # Assuming 0 is background and any other value is foreground (different cell instances)
+    ground_truth_mask = (ground_truth_mask > 0).astype(np.uint8) # Changed this line from >0.5 to >0
 
     intersection = np.logical_and(predicted_mask, ground_truth_mask).sum()
     union = np.logical_or(predicted_mask, ground_truth_mask).sum()
 
     if union == 0:
-        return 1.0 # Or 0.0, depending on convention for empty masks. Here, assuming perfect match if both are empty.
+        return 1.0 # Perfect match if both are empty
     return intersection / union
 
 
