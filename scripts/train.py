@@ -32,6 +32,10 @@ SAVE_CHECKPOINT = True
 CHECKPOINT_DIR = './checkpoints/' # Directory to save model weights
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 NUM_WORKERS = os.cpu_count() // 2 or 1 # Dynamic worker count for DataLoader
+# Define augmentation parameters (you can tune these later)
+USE_AUGMENTATION = True
+ELASTIC_ALPHA = 2000 # Controls the intensity of deformation
+ELASTIC_SIGMA = 20   # Controls the smoothness of deformation
 
 # --- Main execution block ---
 if __name__ == '__main__':
@@ -48,7 +52,7 @@ if __name__ == '__main__':
     
     # Initialize a single full dataset that produces weight maps
     # After modifying dataset.py to load pre-calculated weights, w0 and sigma are no longer needed here
-    full_dataset_with_weights = HeLaDataset(data_root=DATA_ROOT, sequence_name=SEQUENCE_NAME, transform=ToTensor())
+    full_dataset_with_weights = HeLaDataset(data_root=DATA_ROOT, sequence_name=SEQUENCE_NAME, transform=ToTensor(), augment=USE_AUGMENTATION, alpha=ELASTIC_ALPHA, sigma=ELASTIC_SIGMA)
     # Check if dataset is empty
     if len(full_dataset_with_weights) == 0:
         print("Error: Dataset is empty. Cannot proceed with training.")
