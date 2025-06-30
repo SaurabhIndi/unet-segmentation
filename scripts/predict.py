@@ -18,7 +18,7 @@ from utils.dataset import HeLaDataset
 from models.unet_model import UNet
 
 # --- Configuration ---
-MODEL_PATH = './checkpoints/best_unet_model_epoch_14.pth'
+MODEL_PATH = './checkpoints/best_unet_model_epoch_19.pth' # Changed from epoch_14 to epoch_19
 DATA_ROOT = './data/raw/train/DIC-C2DH-HeLa'
 SEQUENCE_NAME = '01'
 # IMAGE_INDEX_TO_PREDICT is now less relevant as we'll use multiple images for stitching
