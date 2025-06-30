@@ -81,7 +81,7 @@ if __name__ == '__main__':
     model = UNet(n_channels=1, n_classes=1).to(DEVICE)
 
     criterion = nn.BCEWithLogitsLoss(reduction='none') 
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=0.99) # NEW line
 
     if SAVE_CHECKPOINT and not os.path.exists(CHECKPOINT_DIR):
         os.makedirs(CHECKPOINT_DIR)
