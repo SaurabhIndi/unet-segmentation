@@ -48,6 +48,19 @@ def center_crop_tensor(tensor, target_size):
     
     return tensor[:, :, h_start:h_end, w_start:w_end]
 
+
+def init_weights(m):
+    if isinstance(m, nn.Conv2d):
+        # He initialization (Kaiming Normal) - suitable for ReLU activations
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    elif isinstance(m, nn.BatchNorm2d):
+        # Initialize BatchNorm weights to 1 and biases to 0
+        nn.init.constant_(m.weight, 1)
+        nn.init.constant_(m.bias, 0)
+
+
 if __name__ == '__main__':
     multiprocessing.freeze_support()
 
@@ -79,6 +92,7 @@ if __name__ == '__main__':
     print(f"Training on {len(train_dataset)} samples, validating on {len(val_dataset)} samples.")
 
     model = UNet(n_channels=1, n_classes=1).to(DEVICE)
+    model.apply(init_weights) # Add this line
 
     criterion = nn.BCEWithLogitsLoss(reduction='none') 
     optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=0.99) # NEW line
