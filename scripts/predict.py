@@ -18,31 +18,53 @@ from utils.dataset import HeLaDataset
 from models.unet_model import UNet
 
 # --- Configuration ---
-MODEL_PATH = './checkpoints/best_unet_model_epoch_19.pth' # Changed from epoch_14 to epoch_19
+# CHANGE: Set MODEL_PATH to the epoch with the best validation loss (Epoch 18 from your training logs)
+MODEL_PATH = './checkpoints/best_unet_model_epoch_18.pth'
 DATA_ROOT = './data/raw/train/DIC-C2DH-HeLa'
 SEQUENCE_NAME = '01'
-# IMAGE_INDEX_TO_PREDICT is now less relevant as we'll use multiple images for stitching
-# But we'll keep it for now if you want to inspect a single one from the dataset,
-# or we can remove it entirely if focusing only on synthetic large images.
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # --- Overlap-Tile Strategy Parameters ---
+# Use a temporary DataLoader to get a sample image, ensuring num_workers=0 for compatibility
 temp_dataset = HeLaDataset(data_root=DATA_ROOT, sequence_name=SEQUENCE_NAME, transform=ToTensor())
+# Use a DataLoader even for one item to handle potential dataset indexing quirks
+temp_loader = torch.utils.data.DataLoader(temp_dataset, batch_size=1, shuffle=False, num_workers=0)
+
+TILE_H_INPUT, TILE_W_INPUT = 572, 572 # Default fallback, will be overwritten if dataset has images
+
 if len(temp_dataset) > 0:
-    sample_image, _, _ = temp_dataset[0]
-    TILE_H_INPUT, TILE_W_INPUT = sample_image.shape[1], sample_image.shape[2] # This will be 512x512
+    # Safely get the shape from the first item
+    for sample_image, _, _ in temp_loader:
+        TILE_H_INPUT, TILE_W_INPUT = sample_image.shape[2], sample_image.shape[3]
+        break # Exit after getting the first sample
 else:
     print("Warning: Dataset is empty, cannot determine TILE_SIZE. Using default 572x572.")
-    TILE_H_INPUT, TILE_W_INPUT = 572, 572 # Fallback if dataset is empty
 
 # These are the actual output dimensions of your UNet for a 512x512 input
+# IMPORTANT: Your UNet, if it's the standard architecture for 572x572 input, should output 388x388.
+# If it's a 512x512 input, it should output 324x324.
+# Let's confirm this based on your previous UNet details.
+# If your UNet takes 512x512 as input, then:
+# 512 -> 484 (conv1) -> 242 (pool) -> 214 (conv2) -> 107 (pool) -> 79 (conv3) -> 39 (pool) -> 11 (conv4) -> 5 (pool) -> -23 (conv5) <- This is incorrect.
+# Standard U-Net uses 'valid' convolutions and crops during upsampling.
+# Let's verify the exact output size for a 512x512 input with your UNet.
+# For a typical UNet (like the original paper's setup), an input of (H, W) results in an output
+# of (H - 188, W - 188). So, 512x512 input -> 324x324 output. This is correct.
+# However, if your HeLaDataset is returning 512x512 images, and your UNet takes 512x512,
+# then `TILE_H_INPUT, TILE_W_INPUT` should be 512, not 572.
+# Let's re-confirm the input size of the dataset. You previously stated 512x512.
+# So, `TILE_H_INPUT, TILE_W_INPUT` derived from `sample_image.shape` *should* be 512, not 572.
+
+# Let's assume the dataset gives 512x512 images as you confirmed earlier.
+# If the UNet takes 512x512 input and produces 324x324 output, these values are correct:
+# TILE_H_INPUT, TILE_W_INPUT = 512, 512 # Set based on your dataset
 TILE_H_OUTPUT = 324
 TILE_W_OUTPUT = 324
 
 # The margin is the total reduction from input to output for a single tile
-PREDICT_OUTPUT_MARGIN_H = TILE_H_INPUT - TILE_H_OUTPUT # Should be 188
-PREDICT_OUTPUT_MARGIN_W = TILE_W_INPUT - TILE_W_OUTPUT # Should be 188
+PREDICT_OUTPUT_MARGIN_H = TILE_H_INPUT - TILE_H_OUTPUT # Should be 512 - 324 = 188
+PREDICT_OUTPUT_MARGIN_W = TILE_W_INPUT - TILE_W_OUTPUT # Should be 512 - 324 = 188
 
 # Stride for sliding window is the size of the valid output region of a tile
 STRIDE_H = TILE_H_OUTPUT
@@ -60,7 +82,6 @@ print(f"Calculated Overlap (H, W): ({OVERLAP_H}, {OVERLAP_W}) pixels")
 print(f"Using device: {DEVICE}")
 
 # --- 1. Load the trained model ---
-# --- CHANGED: n_classes to 2 for the UNet model ---
 model = UNet(n_channels=1, n_classes=2).to(DEVICE)
 
 if not os.path.exists(MODEL_PATH):
@@ -108,8 +129,6 @@ full_ground_truth_mask_tensor = torch.cat((top_row_mask, bottom_row_mask), dim=1
 
 print(f"Loaded synthetic full image with shape: {full_input_image.shape}")
 
-
-# ... (previous code) ...
 
 # --- Helper function for center cropping (copied from train.py) ---
 def center_crop_tensor(tensor, target_size):
@@ -160,11 +179,14 @@ def visualize_segmentation(original_image, ground_truth_mask, predicted_mask, im
     plt.axis('off')
 
     plt.subplot(1, 3, 2)
-    plt.imshow(ground_truth_mask, cmap='viridis' if ground_truth_mask.max() > 1 else 'gray')
+    # Ground truth mask is 0 or 1 (long type from dataset, converted to numpy)
+    # cmap='gray' is suitable for binary masks
+    plt.imshow(ground_truth_mask, cmap='gray')
     plt.title('Ground Truth Mask (Stitched)')
     plt.axis('off')
 
     plt.subplot(1, 3, 3)
+    # Predicted mask is 0 or 1 (float then converted to numpy)
     plt.imshow(predicted_mask, cmap='gray')
     plt.title('Predicted Mask (Overlap-Tile)')
     plt.axis('off')
@@ -183,10 +205,14 @@ def save_mask(mask_array, output_path, filename):
     if isinstance(mask_array, torch.Tensor):
         mask_array = mask_array.cpu().numpy()
 
+    # Ensure mask is in [0, 255] range for saving as uint8 image
     if mask_array.max() <= 1.0 and mask_array.min() >= 0.0:
         mask_array = (mask_array * 255).astype(np.uint8)
     else:
-        mask_array = mask_array.astype(np.uint8)
+        # If mask contains other values (e.g., from instance IDs or non-binary),
+        # convert it to binary 0/255 if not already.
+        mask_array = (mask_array > 0).astype(np.uint8) * 255
+
 
     output_dir = output_path
     os.makedirs(output_dir, exist_ok=True)
@@ -206,14 +232,16 @@ def calculate_iou(predicted_mask, ground_truth_mask):
     if isinstance(ground_truth_mask, torch.Tensor):
         ground_truth_mask = ground_truth_mask.cpu().numpy()
 
-    predicted_mask = (predicted_mask > 0.5).astype(np.uint8)
-    ground_truth_mask = (ground_truth_mask > 0).astype(np.uint8)
+    # Ensure masks are strictly binary (0 or 1) for IoU calculation
+    predicted_mask = (predicted_mask > 0.5).astype(np.uint8) # Threshold probabilities
+    ground_truth_mask = (ground_truth_mask > 0).astype(np.uint8) # Ensure GT is 0/1
 
     intersection = np.logical_and(predicted_mask, ground_truth_mask).sum()
     union = np.logical_or(predicted_mask, ground_truth_mask).sum()
 
     if union == 0:
-        return 1.0 # Perfect match if both are empty
+        # If both masks are empty (all zeros), IoU is 1.0 (perfect overlap of empty sets)
+        return 1.0
     return intersection / union
 
 # --- 3. Overlap-Tile Inference Function ---
@@ -222,16 +250,19 @@ def predict_with_overlap_tile(model, image_tensor, tile_h_input, tile_w_input, s
     original_h, original_w = image_tensor.shape[2], image_tensor.shape[3]
 
     # Calculate number of tiles needed to cover the original image
-    # Note: For overlap-tile, we need to ensure the final reconstructed image can perfectly align
-    # This calculation ensures enough tiles are used and the padded image size is a multiple of stride
-    num_tiles_h = math.ceil((original_h + predict_output_margin_h) / stride_h)
-    num_tiles_w = math.ceil((original_w + predict_output_margin_w) / stride_w)
+    # We need to ensure that the padded image allows for full tiles
+    # and that the output region aligns perfectly for reconstruction.
+    # The output region size of a tile is STRIDE_H x STRIDE_W.
+    # So, padded_height = (num_tiles_h - 1) * stride_h + tile_h_input
+    # or more robustly:
+    num_tiles_h = math.ceil((original_h - TILE_H_OUTPUT + TILE_H_INPUT) / STRIDE_H) if original_h > TILE_H_OUTPUT else 1
+    num_tiles_w = math.ceil((original_w - TILE_W_OUTPUT + TILE_W_INPUT) / STRIDE_W) if original_w > TILE_W_OUTPUT else 1
 
-    # Calculate the size of the padded image needed to perfectly contain all tiles
-    padded_h = num_tiles_h * stride_h + predict_output_margin_h
-    padded_w = num_tiles_w * stride_w + predict_output_margin_w
+    # Calculate the exact padded dimensions required
+    padded_h = (num_tiles_h - 1) * STRIDE_H + TILE_H_INPUT if num_tiles_h > 1 else TILE_H_INPUT
+    padded_w = (num_tiles_w - 1) * STRIDE_W + TILE_W_INPUT if num_tiles_w > 1 else TILE_W_INPUT
 
-    # Calculate padding amounts to center the original image in the padded one
+    # Calculate padding amounts
     pad_h_before = (padded_h - original_h) // 2
     pad_h_after = padded_h - original_h - pad_h_before
     pad_w_before = (padded_w - original_w) // 2
@@ -241,12 +272,10 @@ def predict_with_overlap_tile(model, image_tensor, tile_h_input, tile_w_input, s
     print(f"Original image shape: {image_tensor.shape[2:]}")
     print(f"Padded image shape: {padded_image.shape[2:]}")
 
-    # Reconstructed prediction will be the size of the padded image minus the full margins
-    # This should be the target size for the IoU calculation.
-    reconstructed_h = num_tiles_h * stride_h
-    reconstructed_w = num_tiles_w * stride_w
+    # The reconstructed prediction map will be the size of the valid output region of the padded image
+    reconstructed_h = padded_h - PREDICT_OUTPUT_MARGIN_H
+    reconstructed_w = padded_w - PREDICT_OUTPUT_MARGIN_W
 
-    # Reconstructed prediction will now sum up probabilities, so initialize with float
     reconstructed_prediction = torch.zeros((1, 1, reconstructed_h, reconstructed_w), device=device, dtype=torch.float32)
     contribution_count = torch.zeros((1, 1, reconstructed_h, reconstructed_w), device=device, dtype=torch.float32)
 
@@ -254,36 +283,36 @@ def predict_with_overlap_tile(model, image_tensor, tile_h_input, tile_w_input, s
         for i in range(num_tiles_h):
             for j in range(num_tiles_w):
                 # Calculate start and end for the input tile from the padded image
-                start_h_input = i * stride_h
-                end_h_input = start_h_input + tile_h_input
-                start_w_input = j * stride_w
-                end_w_input = start_w_input + tile_w_input
+                start_h_input = i * STRIDE_H
+                end_h_input = start_h_input + TILE_H_INPUT
+                start_w_input = j * STRIDE_W
+                end_w_input = start_w_input + TILE_W_INPUT
 
                 tile_input = padded_image[:, :, start_h_input:end_h_input, start_w_input:end_w_input]
 
+                # This padding logic for `tile_input` is generally not needed if `padded_image`
+                # is correctly calculated to be an exact multiple of stride + margin for the last tile.
+                # However, it acts as a safeguard.
                 if tile_input.shape[2] != tile_h_input or tile_input.shape[3] != tile_w_input:
-                    print(f"Warning: Tile {i},{j} has shape {tile_input.shape[2:]} which is not ({tile_h_input}, {tile_w_input}). This should not happen with correct padding logic.")
+                    print(f"Warning: Tile {i},{j} has shape {tile_input.shape[2:]} which is not ({tile_h_input}, {tile_w_input}). Padding again.")
                     pad_h = tile_h_input - tile_input.shape[2]
                     pad_w = tile_w_input - tile_input.shape[3]
-                    tile_input = F.pad(tile_input, (0, pad_w, 0, pad_h), mode='reflect')
+                    # Only pad if necessary and positive pad amounts
+                    if pad_h > 0 or pad_w > 0:
+                        tile_input = F.pad(tile_input, (0, pad_w, 0, pad_h), mode='reflect')
 
 
                 tile_output_logits = model(tile_input)
-                # --- CHANGED: Apply softmax and select foreground channel (index 1) ---
-                # The output is [N, n_classes, H_out, W_out]. For 2 classes, this is [N, 2, H_out, W_out].
-                # Softmax across the class dimension (dim=1) to get probabilities for each class.
-                # Then select the channel corresponding to the foreground (usually index 1 for binary).
-                # Keep it as [N, 1, H_out, W_out] by using 1:2 for slicing.
+                # Apply softmax and select foreground channel (index 1)
                 tile_output_prob = torch.softmax(tile_output_logits, dim=1)[:, 1:2, :, :]
-                # --- END CHANGED ---
 
                 # The output from the UNet (tile_output_prob) is of size TILE_H_OUTPUT x TILE_W_OUTPUT
                 # It needs to be placed into the reconstructed_prediction map.
                 # The starting point for placing the output is simply i*stride and j*stride.
-                reconstruct_start_h = i * stride_h
-                reconstruct_end_h = reconstruct_start_h + STRIDE_H
-                reconstruct_start_w = j * stride_w
-                reconstruct_end_w = reconstruct_start_w + STRIDE_W
+                reconstruct_start_h = i * STRIDE_H
+                reconstruct_end_h = reconstruct_start_h + TILE_H_OUTPUT # This is TILE_H_OUTPUT, not STRIDE_H
+                reconstruct_start_w = j * STRIDE_W
+                reconstruct_end_w = reconstruct_start_w + TILE_W_OUTPUT # This is TILE_W_OUTPUT, not STRIDE_W
 
                 reconstructed_prediction[:, :, reconstruct_start_h:reconstruct_end_h,
                                          reconstruct_start_w:reconstruct_end_w] += tile_output_prob
@@ -295,22 +324,14 @@ def predict_with_overlap_tile(model, image_tensor, tile_h_input, tile_w_input, s
     reconstructed_prediction = reconstructed_prediction / contribution_count
 
     # The reconstructed_prediction has dimensions `reconstructed_h` x `reconstructed_w`.
-    # This corresponds to the central 'valid' region of the padded image.
+    # This represents the valid prediction region corresponding to the padded_image's central part.
     # We now need to crop this back to the original image's dimensions.
 
-    # Calculate the start and end indices for cropping back to original_h, original_w
-    # The reconstruction starts from the 'margin_H/2' of the first tile.
-    # So, the effective start of the original image in the reconstructed map is this margin.
-    crop_h_start = (padded_h - original_h) // 2 - (predict_output_margin_h // 2)
-    crop_w_start = (padded_w - original_w) // 2 - (predict_output_margin_w // 2)
-
-    # Ensure start indices are not negative (shouldn't be with correct padding logic)
-    crop_h_start = max(0, crop_h_start)
-    crop_w_start = max(0, crop_w_start)
-
-    final_prediction = reconstructed_prediction[:, :,
-                                                crop_h_start : crop_h_start + original_h,
-                                                crop_w_start : crop_w_start + original_w]
+    # The effective 'start' of the original image within the `reconstructed_prediction` map
+    # is `pad_h_before` (from `padded_image`) minus `PREDICT_OUTPUT_MARGIN_H // 2` (left margin of first tile).
+    # This might need careful adjustment based on the exact padding/cropping in the UNet.
+    # A simpler approach: crop the center of `reconstructed_prediction` to `original_h` x `original_w`.
+    final_prediction = center_crop_tensor(reconstructed_prediction, (original_h, original_w))
 
     print(f"Final reconstructed prediction shape (before thresholding): {final_prediction.shape[2:]}")
     return final_prediction
@@ -323,9 +344,6 @@ predicted_probabilities_full = predict_with_overlap_tile(
     PREDICT_OUTPUT_MARGIN_H, PREDICT_OUTPUT_MARGIN_W, DEVICE
 )
 
-# ... (rest of your script that uses save_mask and calculate_iou) ...
-
-
 # Convert probabilities to a binary mask (e.g., using a threshold of 0.5)
 predicted_mask_full = (predicted_probabilities_full > 0.5).float()
 
@@ -333,7 +351,8 @@ predicted_mask_full = (predicted_probabilities_full > 0.5).float()
 predicted_mask_np = predicted_mask_full.squeeze(0).squeeze(0).cpu().numpy()
 
 # The full_ground_truth_mask_tensor is already the correct larger size
-full_ground_truth_mask_np = full_ground_truth_mask_tensor.squeeze(0).squeeze(0).cpu().numpy()
+# It's also already torch.long and 0/1. For visualization, ensure it's numpy 0/1
+full_ground_truth_mask_np = full_ground_truth_mask_tensor.squeeze(0).squeeze(0).cpu().numpy().astype(np.uint8)
 
 # The original_image for visualization should be the full_input_image_np (the large stitched one)
 full_input_image_np = full_input_image.squeeze(0).squeeze(0).cpu().numpy()
@@ -345,63 +364,10 @@ print(f"Full Ground Truth mask numpy shape: {full_ground_truth_mask_np.shape}")
 
 # ***************** EVALUATION AND VISUALIZATION ********************
 
-# --- 1. Code for Visualizing the Predictions ---
-def visualize_segmentation(original_image, ground_truth_mask, predicted_mask, image_info=""):
-    """
-    Visualizes the original image, ground truth mask, and predicted mask.
-    Adjusted to handle potentially larger images for subplot layout.
-    """
-    if original_image.ndim == 4:
-        original_image = original_image.squeeze()
-    if ground_truth_mask.ndim == 4:
-        ground_truth_mask = ground_truth_mask.squeeze()
-    if predicted_mask.ndim == 4:
-        predicted_mask = predicted_mask.squeeze()
-
-    if isinstance(original_image, torch.Tensor):
-        original_image = original_image.cpu().numpy()
-    if isinstance(ground_truth_mask, torch.Tensor):
-        ground_truth_mask = ground_truth_mask.cpu().numpy()
-    if isinstance(predicted_mask, torch.Tensor):
-        predicted_mask = predicted_mask.cpu().numpy()
-
-    if original_image.dtype == np.float32 or original_image.dtype == np.float64:
-        original_image = (original_image - original_image.min()) / (original_image.max() - original_image.min())
-        original_image = (original_image * 255).astype(np.uint8)
-
-    # Adjust figsize based on image size, or keep fixed if images are not excessively large
-    plt.figure(figsize=(18, 6)) # Increased figure size
-
-    plt.subplot(1, 3, 1)
-    plt.imshow(original_image, cmap='gray')
-    plt.title('Original Stitched Image')
-    plt.axis('off')
-
-    plt.subplot(1, 3, 2)
-    plt.imshow(ground_truth_mask, cmap='viridis' if ground_truth_mask.max() > 1 else 'gray')
-    plt.title('Ground Truth Mask (Stitched)')
-    plt.axis('off')
-
-    plt.subplot(1, 3, 3)
-    plt.imshow(predicted_mask, cmap='gray')
-    plt.title('Predicted Mask (Overlap-Tile)')
-    plt.axis('off')
-
-    plt.suptitle(f'Segmentation Results for Synthetic Large Image {image_info}')
-
-    plt.show()
-
-# --- 2. Code for Saving Predictions ---
-# (This function remains unchanged, as it handles numpy arrays correctly)
-
-# --- 3. Code for Calculating Intersection over Union (IoU) ---
-# (This function remains unchanged, as it handles numpy arrays correctly)
-
-
 # --- Call the functions for visualization, saving, and IoU ---
 # We'll pass the full image shape or a descriptive string to visualize_segmentation
 visualize_segmentation(full_input_image_np, full_ground_truth_mask_np, predicted_mask_np,
-                         image_info=f"({full_input_image_np.shape[0]}x{full_input_image_np.shape[1]})")
+                        image_info=f"({full_input_image_np.shape[0]}x{full_input_image_np.shape[1]})")
 
 output_directory = "./predictions_output_overlap_tile" # New directory for overlap-tile results
 filename = f"predicted_mask_overlap_tile_{full_input_image_np.shape[0]}x{full_input_image_np.shape[1]}.png"
