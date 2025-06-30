@@ -8,11 +8,11 @@ class DoubleConv(nn.Module):
         super().__init__()
         self.double_conv = nn.Sequential(
             # Changed padding to 0 for unpadded convolutions
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=0), 
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=0),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
             # Changed padding to 0 for unpadded convolutions
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=0), 
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=0),
             nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True)
         )
@@ -36,7 +36,7 @@ class Up(nn.Module):
     """Upscaling then double conv, with cropping of skip connection"""
     def __init__(self, in_channels_from_prev_decoder, skip_channels, out_channels, bilinear=True):
         super().__init__()
-        
+
         if bilinear:
             self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
             # Input channels for conv will be sum of upsampled channels and cropped skip channels
@@ -56,6 +56,7 @@ class Up(nn.Module):
 class OutConv(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(OutConv, self).__init__()
+        # OutConv now outputs 'out_channels' feature maps (which will be 2 for binary segmentation)
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
 
     def forward(self, x):
@@ -65,6 +66,7 @@ class UNet(nn.Module):
     def __init__(self, n_channels, n_classes, bilinear=False): # Changed default to False
         super(UNet, self).__init__()
         self.n_channels = n_channels
+        # n_classes should now reflect the final number of output channels, which is 2 for binary segmentation as per paper
         self.n_classes = n_classes
         self.bilinear = bilinear
 
@@ -73,12 +75,13 @@ class UNet(nn.Module):
         self.down2 = Down(128, 256)
         self.down3 = Down(256, 512)
         self.down4 = Down(512, 1024)
-        
-        self.up1 = Up(1024, 512, 512, bilinear) 
+
+        self.up1 = Up(1024, 512, 512, bilinear)
         self.up2 = Up(512, 256, 256, bilinear)
         self.up3 = Up(256, 128, 128, bilinear)
         self.up4 = Up(128, 64, 64, bilinear)
-        
+
+        # OutConv is now instantiated with 'n_classes' which will be 2
         self.outc = OutConv(64, n_classes)
 
     # Helper function for center cropping
@@ -89,22 +92,22 @@ class UNet(nn.Module):
         """
         _, _, h, w = feature_map.size()
         th, tw = target_size
-        
+
         # Calculate start and end indices for cropping
         h_start = max(0, (h - th) // 2)
         h_end = h_start + th
         w_start = max(0, (w - tw) // 2)
         w_end = w_start + tw
-        
+
         return feature_map[:, :, h_start:h_end, w_start:w_end]
 
 
     def forward(self, x):
-        x1 = self.inc(x)     # Output size: (H-4, W-4) for 2x3x3 convs
-        x2 = self.down1(x1)  # MaxPool (H-4)/2, (W-4)/2; then 2x3x3 convs. Output size: ((H-4)/2 - 4, (W-4)/2 - 4)
+        x1 = self.inc(x)    # Output size: (H-4, W-4) for 2x3x3 convs
+        x2 = self.down1(x1) # MaxPool (H-4)/2, (W-4)/2; then 2x3x3 convs. Output size: ((H-4)/2 - 4, (W-4)/2 - 4)
         x3 = self.down2(x2)
         x4 = self.down3(x3)
-        x5 = self.down4(x4)  # Smallest feature map
+        x5 = self.down4(x4) # Smallest feature map
 
         # Now for the expansive path, we crop the skip connections (x1, x2, x3, x4)
         # to match the size of the upsampled feature map before concatenation.
@@ -147,7 +150,7 @@ if __name__ == '__main__':
     # U-Net paper uses 512x512 images.
     input_tensor = torch.randn(1, 1, 572, 572) # For a 572x572 input, output is 388x388 as per original paper.
                                                 # Or, for 512x512, let's verify.
-    
+
     # Trace for a 512x512 input:
     # Input: 512x512
     # Inc (2x3x3 conv): 512 - 2*2 = 508 (after 2 convs) -> x1 (508x508)
@@ -158,13 +161,13 @@ if __name__ == '__main__':
 
     # Expansive Path
     # Up1: Upsample x5 (24 -> 48); 2x3x3 conv. Needs to crop x4 (56x56) to 48x48.
-    #      Output after 2x3x3 conv: 48-4 = 44 -> (44x44)
+    #       Output after 2x3x3 conv: 48-4 = 44 -> (44x44)
     # Up2: Upsample (44 -> 88); 2x3x3 conv. Needs to crop x3 (121x121) to 88x88.
-    #      Output after 2x3x3 conv: 88-4 = 84 -> (84x84)
+    #       Output after 2x3x3 conv: 88-4 = 84 -> (84x84)
     # Up3: Upsample (84 -> 168); 2x3x3 conv. Needs to crop x2 (250x250) to 168x168.
-    #      Output after 2x3x3 conv: 168-4 = 164 -> (164x164)
+    #       Output after 2x3x3 conv: 168-4 = 164 -> (164x164)
     # Up4: Upsample (164 -> 328); 2x3x3 conv. Needs to crop x1 (508x508) to 328x328.
-    #      Output after 2x3x3 conv: 328-4 = 324 -> (324x324)
+    #       Output after 2x3x3 conv: 328-4 = 324 -> (324x324)
     # OutConv: 1x1 conv on 324x324 -> final output is 324x324
 
     # The original U-Net paper used 572x572 input to get a 388x388 output.
@@ -200,17 +203,21 @@ if __name__ == '__main__':
     # Up4 target: 164*2 = 328. Crop x1 (508) to 328. Up4 conv output: 328-4 = 324
     # Final output size for 512x512 input: 324x324
 
-    input_tensor = torch.randn(1, 1, input_height, input_width) 
-    
-    model = UNet(n_channels=1, n_classes=1) 
-    
+    # Changed n_classes to 2 for example usage as well, to reflect the actual model
+    model = UNet(n_channels=1, n_classes=2)
+    input_tensor = torch.randn(1, 1, input_height, input_width)
+
     output = model(input_tensor)
-    
+
     print(f"Input tensor shape: {input_tensor.shape}")
     print(f"Output tensor shape: {output.shape}")
 
     expected_output_height = 324
     expected_output_width = 324
-    assert output.shape[2] == expected_output_height and output.shape[3] == expected_output_width, \
-        f"Output shape ({output.shape[2]}x{output.shape[3]}) does not match expected ({expected_output_height}x{expected_output_width})!"
-    print("U-Net model created successfully and output shape matches expected size for unpadded convolutions.")
+    # The output channels should now be 2 as well
+    expected_output_channels = 2
+    assert output.shape[2] == expected_output_height and \
+           output.shape[3] == expected_output_width and \
+           output.shape[1] == expected_output_channels, \
+        f"Output shape ({output.shape}) does not match expected (N, {expected_output_channels}, {expected_output_height}, {expected_output_width})!"
+    print("U-Net model created successfully and output shape matches expected size for unpadded convolutions with 2 output channels.")

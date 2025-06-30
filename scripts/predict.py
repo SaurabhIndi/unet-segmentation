@@ -60,7 +60,8 @@ print(f"Calculated Overlap (H, W): ({OVERLAP_H}, {OVERLAP_W}) pixels")
 print(f"Using device: {DEVICE}")
 
 # --- 1. Load the trained model ---
-model = UNet(n_channels=1, n_classes=1).to(DEVICE)
+# --- CHANGED: n_classes to 2 for the UNet model ---
+model = UNet(n_channels=1, n_classes=2).to(DEVICE)
 
 if not os.path.exists(MODEL_PATH):
     print(f"Error: Model checkpoint not found at {MODEL_PATH}")
@@ -118,12 +119,12 @@ def center_crop_tensor(tensor, target_size):
     """
     _, _, h, w = tensor.size()
     th, tw = target_size
-    
+
     h_start = max(0, (h - th) // 2)
     h_end = h_start + th
     w_start = max(0, (w - tw) // 2)
     w_end = w_start + tw
-    
+
     return tensor[:, :, h_start:h_end, w_start:w_end]
 
 # --- Code for Visualizing the Predictions ---
@@ -216,20 +217,20 @@ def calculate_iou(predicted_mask, ground_truth_mask):
     return intersection / union
 
 # --- 3. Overlap-Tile Inference Function ---
-def predict_with_overlap_tile(model, image_tensor, tile_h_input, tile_w_input, stride_h, stride_w, 
+def predict_with_overlap_tile(model, image_tensor, tile_h_input, tile_w_input, stride_h, stride_w,
                               predict_output_margin_h, predict_output_margin_w, device):
     original_h, original_w = image_tensor.shape[2], image_tensor.shape[3]
 
     # Calculate number of tiles needed to cover the original image
     # Note: For overlap-tile, we need to ensure the final reconstructed image can perfectly align
     # This calculation ensures enough tiles are used and the padded image size is a multiple of stride
-    num_tiles_h = math.ceil((original_h + predict_output_margin_h) / stride_h) 
-    num_tiles_w = math.ceil((original_w + predict_output_margin_w) / stride_w) 
+    num_tiles_h = math.ceil((original_h + predict_output_margin_h) / stride_h)
+    num_tiles_w = math.ceil((original_w + predict_output_margin_w) / stride_w)
 
     # Calculate the size of the padded image needed to perfectly contain all tiles
     padded_h = num_tiles_h * stride_h + predict_output_margin_h
     padded_w = num_tiles_w * stride_w + predict_output_margin_w
-    
+
     # Calculate padding amounts to center the original image in the padded one
     pad_h_before = (padded_h - original_h) // 2
     pad_h_after = padded_h - original_h - pad_h_before
@@ -245,6 +246,7 @@ def predict_with_overlap_tile(model, image_tensor, tile_h_input, tile_w_input, s
     reconstructed_h = num_tiles_h * stride_h
     reconstructed_w = num_tiles_w * stride_w
 
+    # Reconstructed prediction will now sum up probabilities, so initialize with float
     reconstructed_prediction = torch.zeros((1, 1, reconstructed_h, reconstructed_w), device=device, dtype=torch.float32)
     contribution_count = torch.zeros((1, 1, reconstructed_h, reconstructed_w), device=device, dtype=torch.float32)
 
@@ -267,20 +269,26 @@ def predict_with_overlap_tile(model, image_tensor, tile_h_input, tile_w_input, s
 
 
                 tile_output_logits = model(tile_input)
-                tile_output_prob = torch.sigmoid(tile_output_logits)
-                
+                # --- CHANGED: Apply softmax and select foreground channel (index 1) ---
+                # The output is [N, n_classes, H_out, W_out]. For 2 classes, this is [N, 2, H_out, W_out].
+                # Softmax across the class dimension (dim=1) to get probabilities for each class.
+                # Then select the channel corresponding to the foreground (usually index 1 for binary).
+                # Keep it as [N, 1, H_out, W_out] by using 1:2 for slicing.
+                tile_output_prob = torch.softmax(tile_output_logits, dim=1)[:, 1:2, :, :]
+                # --- END CHANGED ---
+
                 # The output from the UNet (tile_output_prob) is of size TILE_H_OUTPUT x TILE_W_OUTPUT
                 # It needs to be placed into the reconstructed_prediction map.
                 # The starting point for placing the output is simply i*stride and j*stride.
                 reconstruct_start_h = i * stride_h
-                reconstruct_end_h = reconstruct_start_h + STRIDE_H 
+                reconstruct_end_h = reconstruct_start_h + STRIDE_H
                 reconstruct_start_w = j * stride_w
-                reconstruct_end_w = reconstruct_start_w + STRIDE_W 
+                reconstruct_end_w = reconstruct_start_w + STRIDE_W
 
-                reconstructed_prediction[:, :, reconstruct_start_h:reconstruct_end_h, 
+                reconstructed_prediction[:, :, reconstruct_start_h:reconstruct_end_h,
                                          reconstruct_start_w:reconstruct_end_w] += tile_output_prob
-                
-                contribution_count[:, :, reconstruct_start_h:reconstruct_end_h, 
+
+                contribution_count[:, :, reconstruct_start_h:reconstruct_end_h,
                                    reconstruct_start_w:reconstruct_end_w] += 1
 
     contribution_count[contribution_count == 0] = 1 # Avoid division by zero
@@ -289,20 +297,20 @@ def predict_with_overlap_tile(model, image_tensor, tile_h_input, tile_w_input, s
     # The reconstructed_prediction has dimensions `reconstructed_h` x `reconstructed_w`.
     # This corresponds to the central 'valid' region of the padded image.
     # We now need to crop this back to the original image's dimensions.
-    
+
     # Calculate the start and end indices for cropping back to original_h, original_w
     # The reconstruction starts from the 'margin_H/2' of the first tile.
     # So, the effective start of the original image in the reconstructed map is this margin.
-    crop_h_start = (padded_h - original_h) // 2 - (predict_output_margin_h // 2) 
-    crop_w_start = (padded_w - original_w) // 2 - (predict_output_margin_w // 2) 
-    
+    crop_h_start = (padded_h - original_h) // 2 - (predict_output_margin_h // 2)
+    crop_w_start = (padded_w - original_w) // 2 - (predict_output_margin_w // 2)
+
     # Ensure start indices are not negative (shouldn't be with correct padding logic)
     crop_h_start = max(0, crop_h_start)
     crop_w_start = max(0, crop_w_start)
 
-    final_prediction = reconstructed_prediction[:, :, 
-                                             crop_h_start : crop_h_start + original_h,
-                                             crop_w_start : crop_w_start + original_w]
+    final_prediction = reconstructed_prediction[:, :,
+                                                crop_h_start : crop_h_start + original_h,
+                                                crop_w_start : crop_w_start + original_w]
 
     print(f"Final reconstructed prediction shape (before thresholding): {final_prediction.shape[2:]}")
     return final_prediction
@@ -311,7 +319,7 @@ def predict_with_overlap_tile(model, image_tensor, tile_h_input, tile_w_input, s
 # --- Perform Overlap-Tile Inference ---
 # Call the overlap-tile function with the new synthetic larger image
 predicted_probabilities_full = predict_with_overlap_tile(
-    model, full_input_image, TILE_H_INPUT, TILE_W_INPUT, STRIDE_H, STRIDE_W, 
+    model, full_input_image, TILE_H_INPUT, TILE_W_INPUT, STRIDE_H, STRIDE_W,
     PREDICT_OUTPUT_MARGIN_H, PREDICT_OUTPUT_MARGIN_W, DEVICE
 )
 
@@ -319,7 +327,7 @@ predicted_probabilities_full = predict_with_overlap_tile(
 
 
 # Convert probabilities to a binary mask (e.g., using a threshold of 0.5)
-predicted_mask_full = (predicted_probabilities_full > 0.5).float() 
+predicted_mask_full = (predicted_probabilities_full > 0.5).float()
 
 # Remove batch and channel dimensions for visualization and metric calculation
 predicted_mask_np = predicted_mask_full.squeeze(0).squeeze(0).cpu().numpy()
@@ -392,8 +400,8 @@ def visualize_segmentation(original_image, ground_truth_mask, predicted_mask, im
 
 # --- Call the functions for visualization, saving, and IoU ---
 # We'll pass the full image shape or a descriptive string to visualize_segmentation
-visualize_segmentation(full_input_image_np, full_ground_truth_mask_np, predicted_mask_np, 
-                       image_info=f"({full_input_image_np.shape[0]}x{full_input_image_np.shape[1]})")
+visualize_segmentation(full_input_image_np, full_ground_truth_mask_np, predicted_mask_np,
+                         image_info=f"({full_input_image_np.shape[0]}x{full_input_image_np.shape[1]})")
 
 output_directory = "./predictions_output_overlap_tile" # New directory for overlap-tile results
 filename = f"predicted_mask_overlap_tile_{full_input_image_np.shape[0]}x{full_input_image_np.shape[1]}.png"
