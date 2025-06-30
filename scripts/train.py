@@ -2,7 +2,7 @@
 import os
 import sys
 import torch
-import torch.nn as nn # Keep for BatchNorm2d and Conv2d init
+import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
@@ -15,9 +15,9 @@ sys.path.insert(0, project_root)
 # --- END FIX ---
 
 from utils.dataset import HeLaDataset
-from torchvision.transforms import ToTensor
-from models.unet_model import UNet # Your updated UNet model
-from utils.losses import WeightedCrossEntropyLoss # --- NEW: Import your custom loss ---
+from torchvision.transforms import ToTensor # Keep for image and weight_map transform
+from models.unet_model import UNet
+from utils.losses import WeightedCrossEntropyLoss
 
 # --- Configuration ---
 DATA_ROOT = './data/raw/train/DIC-C2DH-HeLa'
@@ -53,12 +53,10 @@ def center_crop_tensor(tensor, target_size):
 
 def init_weights(m):
     if isinstance(m, nn.Conv2d):
-        # He initialization (Kaiming Normal) - suitable for ReLU activations
         nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
         if m.bias is not None:
             nn.init.constant_(m.bias, 0)
     elif isinstance(m, nn.BatchNorm2d):
-        # Initialize BatchNorm weights to 1 and biases to 0
         nn.init.constant_(m.weight, 1)
         nn.init.constant_(m.bias, 0)
 
@@ -71,7 +69,7 @@ if __name__ == '__main__':
     full_dataset_with_weights = HeLaDataset(
         data_root=DATA_ROOT,
         sequence_name=SEQUENCE_NAME,
-        transform=ToTensor(),
+        transform=ToTensor(), # Apply ToTensor only to image and weight_map (handled in dataset)
         augment=USE_AUGMENTATION,
         alpha=ELASTIC_ALPHA,
         sigma=ELASTIC_SIGMA
@@ -87,19 +85,15 @@ if __name__ == '__main__':
 
     use_pin_memory = True if DEVICE.type == 'cuda' else False
 
-    # Keeping num_workers=0 for now as per previous troubleshooting
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0, pin_memory=False)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=0, pin_memory=False)
 
     print(f"Training on {len(train_dataset)} samples, validating on {len(val_dataset)} samples.")
 
-    model = UNet(n_channels=1, n_classes=2).to(DEVICE) # n_classes is 2 as per Phase 6 Task 1
+    model = UNet(n_channels=1, n_classes=2).to(DEVICE)
     model.apply(init_weights)
 
-    # --- CHANGED: Use the custom WeightedCrossEntropyLoss ---
     criterion = WeightedCrossEntropyLoss()
-    # --- END CHANGED ---
-
     optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=0.99)
 
     if SAVE_CHECKPOINT and not os.path.exists(CHECKPOINT_DIR):
@@ -113,11 +107,9 @@ if __name__ == '__main__':
         with tqdm(total=len(train_loader), desc=f"Epoch {epoch+1}/{NUM_EPOCHS} (Train)", unit="batch") as pbar:
             for images, true_masks_full, weight_maps_full in train_loader:
                 images = images.to(DEVICE, dtype=torch.float32)
-                # --- NEW/CHANGED: true_masks_full should be long for CrossEntropyLoss, and weight_maps_full float ---
-                # The dataset should already load true_masks_full as float (0.0 or 1.0) and weight_maps_full as float.
-                # We convert true_masks to long *after* cropping and squeezing its channel.
-                true_masks_full = true_masks_full.to(DEVICE) # Keep original dtype for now, convert later.
-                weight_maps_full = weight_maps_full.to(DEVICE, dtype=torch.float32)
+                # true_masks_full is already long and has a channel dim (N, 1, H, W) from HeLaDataset
+                true_masks_full = true_masks_full.to(DEVICE) # No dtype conversion needed, it's long
+                weight_maps_full = weight_maps_full.to(DEVICE, dtype=torch.float32) # Still float for weights
 
                 optimizer.zero_grad()
                 outputs = model(images) # outputs are logits (N, 2, H, W)
@@ -127,19 +119,13 @@ if __name__ == '__main__':
                 true_masks_cropped = center_crop_tensor(true_masks_full, (output_height, output_width))
                 weight_maps_cropped = center_crop_tensor(weight_maps_full, (output_height, output_width))
 
-                # --- NEW/CHANGED: Convert true_masks_cropped to long and remove channel dimension ---
-                # CrossEntropyLoss expects target shape (N, H, W) with pixel values as class indices (long).
-                # Your `true_masks_cropped` are likely (N, 1, H, W) float from ToTensor().
-                # Squeeze the channel dimension and convert to long.
-                true_masks_long = true_masks_cropped.squeeze(1).long() # Shape becomes (N, H, W)
-                # --- NEW/CHANGED: Squeeze weight map channel dimension if it exists (it should be (N, H, W)) ---
-                # Your weight_maps_cropped should be (N, 1, H, W) from dataset's ToTensor.
-                # The custom loss expects (N, H, W) for weight_maps.
-                weight_maps_squeezed = weight_maps_cropped.squeeze(1) # Shape becomes (N, H, W)
+                # Now true_masks_cropped is (N, 1, H, W) long. Squeeze the channel for CrossEntropyLoss.
+                true_masks_long = true_masks_cropped.squeeze(1) # Shape becomes (N, H, W), still long.
 
-                # --- CHANGED: Pass all three arguments to the custom criterion ---
+                # weight_maps_cropped is (N, 1, H, W) float. Squeeze the channel for the custom loss.
+                weight_maps_squeezed = weight_maps_cropped.squeeze(1) # Shape becomes (N, H, W), still float.
+
                 loss = criterion(outputs, true_masks_long, weight_maps_squeezed)
-                # --- END CHANGED ---
 
                 loss.backward()
                 optimizer.step()
@@ -154,16 +140,12 @@ if __name__ == '__main__':
         # --- 5. Validation Loop ---
         model.eval()
         val_loss = 0.0
-        # For validation, we typically use the standard (unweighted) CrossEntropyLoss
-        # unless specific metrics require weighted evaluation.
-        # This is because the weight map is primarily for training stability/performance
-        # on challenging pixel boundaries, not necessarily for a general validation metric.
         unweighted_criterion = nn.CrossEntropyLoss()
         with torch.no_grad():
             with tqdm(total=len(val_loader), desc=f"Epoch {epoch+1}/{NUM_EPOCHS} (Val)", unit="batch") as pbar:
                 for images, masks_full, _ in val_loader: # _ for weight_maps as they are not used in unweighted validation
                     images = images.to(DEVICE, dtype=torch.float32)
-                    masks_full = masks_full.to(DEVICE, dtype=torch.float32) # Still float from dataset
+                    masks_full = masks_full.to(DEVICE) # Already long from dataset, just move to device
 
                     outputs = model(images) # outputs are logits (N, 2, H, W)
 
@@ -171,8 +153,8 @@ if __name__ == '__main__':
                     output_height, output_width = outputs.size()[2:]
                     masks_cropped = center_crop_tensor(masks_full, (output_height, output_width))
 
-                    # Convert masks_cropped to long for CrossEntropyLoss
-                    masks_long = masks_cropped.squeeze(1).long() # Shape becomes (N, H, W)
+                    # Convert masks_cropped to (N, H, W) long for CrossEntropyLoss
+                    masks_long = masks_cropped.squeeze(1) # Shape becomes (N, H, W), already long.
 
                     loss = unweighted_criterion(outputs, masks_long)
                     val_loss += loss.item()
