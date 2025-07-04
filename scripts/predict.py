@@ -11,15 +11,19 @@ sys.path.insert(0, project_root)
 import torch
 import torch.nn.functional as F
 import numpy as np
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt # Keep for now if you visualize
 from PIL import Image
 import math
 import glob
 
-import torchvision.transforms as transforms # Keep this import!
+import torchvision.transforms as transforms
 
-# Import your dataset and model
+# *** NEW: Import get_instance_masks ***
+from utils.metrics import get_instance_masks # Ensure this function exists in utils/metrics.py
+
+# Import your model
 from models.unet_model import UNet
+
 
 # --- CONFIGURATION ---
 MODEL_PATH = './checkpoints/best_unet_model_epoch_18.pth' # Adjust this path as needed
@@ -39,8 +43,10 @@ IMG_WIDTH = 512  # Set this explicitly based on your dataset images and UNet inp
 # Make sure these match the training size
 THRESHOLD = 0.5 # Threshold to convert probabilities to binary mask
 
+# *** NEW: Minimum cell size for instance segmentation ***
+MIN_CELL_SIZE = 15 # Adjust based on your cell size, smaller objects will be removed
+
 # --- Define transforms ---
-# We will manually handle resize, so the transform pipeline is simpler
 transform = transforms.Compose([
     transforms.ToTensor(), # Converts PIL Image to [0, 1] Tensor
     # !!! VERY IMPORTANT: Adjust mean and std to match your training normalization !!!
@@ -48,8 +54,10 @@ transform = transforms.Compose([
 ])
 
 
-def predict_sequence(model, sequence_input_dir, output_masks_dir):
+def predict_sequence(model, sequence_input_dir, output_masks_dir, output_instance_masks_dir):
+    # Create output directories if they don't exist
     os.makedirs(output_masks_dir, exist_ok=True)
+    os.makedirs(output_instance_masks_dir, exist_ok=True) # New directory for instance masks
 
     image_files = sorted(glob.glob(os.path.join(sequence_input_dir, 't*.tif')))
 
@@ -60,24 +68,16 @@ def predict_sequence(model, sequence_input_dir, output_masks_dir):
     print(f"Found {len(image_files)} images in the sequence.")
 
     model.eval()
-    model.to(DEVICE) # Use the global DEVICE variable
+    model.to(DEVICE)
 
     for i, img_path in enumerate(image_files):
         print(f"Processing frame {i+1}/{len(image_files)}: {os.path.basename(img_path)}")
 
-        # Load image as grayscale
         image = Image.open(img_path).convert("L")
+        image = image.resize((IMG_WIDTH, IMG_HEIGHT), Image.BILINEAR)
 
-        # --- MANUAL RESIZE HERE ---
-        # Resize the PIL Image before applying torchvision transforms
-        # Image.resize expects a tuple (width, height)
-        image = image.resize((IMG_WIDTH, IMG_HEIGHT), Image.BILINEAR) # Or Image.BICUBIC for higher quality
-        # --- END MANUAL RESIZE ---
+        input_tensor = transform(image).unsqueeze(0).to(DEVICE)
 
-        # Apply remaining transforms (ToTensor, Normalize)
-        input_tensor = transform(image).unsqueeze(0).to(DEVICE) # Add batch dimension and move to device
-
-        # Perform inference
         with torch.no_grad():
             output = model(input_tensor)
 
@@ -89,16 +89,32 @@ def predict_sequence(model, sequence_input_dir, output_masks_dir):
             else:
                 raise ValueError("MODEL_N_CLASSES must be 1 or 2 for binary segmentation.")
 
-        binary_mask = (prediction > THRESHOLD).astype(np.uint8) * 255
+        binary_mask = (prediction > THRESHOLD).astype(np.uint8) * 255 # 0 or 255
+
+        # --- NEW: Generate Instance Mask ---
+        # get_instance_masks expects 0/1 or 0/255. It's usually good to pass it as 0/1 boolean or int.
+        instance_mask = get_instance_masks(binary_mask, min_size=MIN_CELL_SIZE)
+        # Ensure it's uint16 as required by CTC
+        instance_mask_save = instance_mask.astype(np.uint16)
+        # --- END NEW ---
 
         frame_num = int(os.path.basename(img_path)[1:4])
-        output_mask_filename = f"mask{frame_num:03d}.tif"
-        output_mask_path = os.path.join(output_masks_dir, output_mask_filename)
+        
+        # Save Binary Mask (as before)
+        output_binary_mask_filename = f"mask{frame_num:03d}.tif"
+        output_binary_mask_path = os.path.join(output_masks_dir, output_binary_mask_filename)
+        Image.fromarray(binary_mask).save(output_binary_mask_path)
 
-        Image.fromarray(binary_mask).save(output_mask_path)
-        # print(f"  Saved mask to {output_mask_path}") # Uncomment for verbose output per frame
+        # *** NEW: Save Instance Mask ***
+        # CTC instance masks are typically named mNNN.tif
+        output_instance_mask_filename = f"m{frame_num:03d}.tif"
+        output_instance_mask_path = os.path.join(output_instance_masks_dir, output_instance_mask_filename)
+        Image.fromarray(instance_mask_save).save(output_instance_mask_path)
+        # print(f"  Saved instance mask to {output_instance_mask_path}") # Uncomment for verbose output
 
-    print(f"Finished processing sequence. Masks saved to {output_masks_dir}")
+    print(f"Finished processing sequence. Binary masks saved to {output_masks_dir}")
+    print(f"Finished processing sequence. Instance masks saved to {output_instance_masks_dir}")
+
 
 if __name__ == '__main__':
     model = UNet(n_channels=MODEL_N_CHANNELS, n_classes=MODEL_N_CLASSES)
@@ -115,9 +131,17 @@ if __name__ == '__main__':
         exit()
 
     SEQUENCE_INPUT_DIR = os.path.join(DATA_ROOT, SEQUENCE_NAME)
-    OUTPUT_MASKS_DIR = os.path.join(os.path.dirname(os.path.dirname(DATA_ROOT)), 'processed', 'predictions', 'DIC-C2DH-HeLa', f'{SEQUENCE_NAME}_RES')
+    
+    # Existing output directory for binary masks
+    OUTPUT_BINARY_MASKS_DIR = os.path.join(os.path.dirname(os.path.dirname(DATA_ROOT)), 'processed', 'predictions', 'DIC-C2DH-HeLa', f'{SEQUENCE_NAME}_RES')
+
+    # NEW: Output directory for instance masks (e.g., in a 'RES_INST' subfolder)
+    # Or, following CTC conventions, often the "01_RES" folder can contain both maskXXX.tif and mXXX.tif
+    # Let's keep them separated for clarity for now, or you can choose to save both to OUTPUT_BINARY_MASKS_DIR
+    OUTPUT_INSTANCE_MASKS_DIR = os.path.join(os.path.dirname(os.path.dirname(DATA_ROOT)), 'processed', 'predictions', 'DIC-C2DH-HeLa', f'{SEQUENCE_NAME}_RES_INST')
 
     print(f"Input Sequence Directory: {SEQUENCE_INPUT_DIR}")
-    print(f"Output Masks Directory: {OUTPUT_MASKS_DIR}")
+    print(f"Output Binary Masks Directory: {OUTPUT_BINARY_MASKS_DIR}")
+    print(f"Output Instance Masks Directory: {OUTPUT_INSTANCE_MASKS_DIR}") # New
 
-    predict_sequence(model, SEQUENCE_INPUT_DIR, OUTPUT_MASKS_DIR)
+    predict_sequence(model, SEQUENCE_INPUT_DIR, OUTPUT_BINARY_MASKS_DIR, OUTPUT_INSTANCE_MASKS_DIR)
