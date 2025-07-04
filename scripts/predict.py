@@ -1,3 +1,13 @@
+import os
+import sys
+
+# Add the project root to the Python path IMMEDIATELY
+script_dir = os.path.dirname(__file__)
+project_root = os.path.abspath(os.path.join(script_dir, '..'))
+sys.path.insert(0, project_root)
+
+
+
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -8,14 +18,16 @@ import sys
 from PIL import Image
 import math
 
-# Add the project root to the Python path
-script_dir = os.path.dirname(__file__)
-project_root = os.path.abspath(os.path.join(script_dir, '..'))
-sys.path.insert(0, project_root)
+# IMPORT METRICS HERE - Keep only one import block
+from utils.metrics import calculate_iou, get_instance_masks, calculate_rand_index_and_error
+
+
+
 
 # Import your dataset and model
 from utils.dataset import HeLaDataset
 from models.unet_model import UNet
+
 
 # --- Configuration ---
 # CHANGE: Set MODEL_PATH to the epoch with the best validation loss (Epoch 18 from your training logs)
@@ -31,34 +43,19 @@ temp_dataset = HeLaDataset(data_root=DATA_ROOT, sequence_name=SEQUENCE_NAME, tra
 # Use a DataLoader even for one item to handle potential dataset indexing quirks
 temp_loader = torch.utils.data.DataLoader(temp_dataset, batch_size=1, shuffle=False, num_workers=0)
 
-TILE_H_INPUT, TILE_W_INPUT = 572, 572 # Default fallback, will be overwritten if dataset has images
+TILE_H_INPUT, TILE_W_INPUT = 512, 512 # Set this explicitly based on your dataset images as 512x512
 
 if len(temp_dataset) > 0:
-    # Safely get the shape from the first item
+    # Safely get the shape from the first item to confirm
     for sample_image, _, _ in temp_loader:
-        TILE_H_INPUT, TILE_W_INPUT = sample_image.shape[2], sample_image.shape[3]
+        if sample_image.shape[2] != TILE_H_INPUT or sample_image.shape[3] != TILE_W_INPUT:
+            print(f"Warning: Dataset image size ({sample_image.shape[2]}x{sample_image.shape[3]}) does not match expected TILE_H_INPUT/W_INPUT ({TILE_H_INPUT}x{TILE_W_INPUT}). Please check your dataset or configuration.")
         break # Exit after getting the first sample
 else:
-    print("Warning: Dataset is empty, cannot determine TILE_SIZE. Using default 572x572.")
+    print("Warning: Dataset is empty, cannot determine TILE_SIZE. Using default 512x512.")
+
 
 # These are the actual output dimensions of your UNet for a 512x512 input
-# IMPORTANT: Your UNet, if it's the standard architecture for 572x572 input, should output 388x388.
-# If it's a 512x512 input, it should output 324x324.
-# Let's confirm this based on your previous UNet details.
-# If your UNet takes 512x512 as input, then:
-# 512 -> 484 (conv1) -> 242 (pool) -> 214 (conv2) -> 107 (pool) -> 79 (conv3) -> 39 (pool) -> 11 (conv4) -> 5 (pool) -> -23 (conv5) <- This is incorrect.
-# Standard U-Net uses 'valid' convolutions and crops during upsampling.
-# Let's verify the exact output size for a 512x512 input with your UNet.
-# For a typical UNet (like the original paper's setup), an input of (H, W) results in an output
-# of (H - 188, W - 188). So, 512x512 input -> 324x324 output. This is correct.
-# However, if your HeLaDataset is returning 512x512 images, and your UNet takes 512x512,
-# then `TILE_H_INPUT, TILE_W_INPUT` should be 512, not 572.
-# Let's re-confirm the input size of the dataset. You previously stated 512x512.
-# So, `TILE_H_INPUT, TILE_W_INPUT` derived from `sample_image.shape` *should* be 512, not 572.
-
-# Let's assume the dataset gives 512x512 images as you confirmed earlier.
-# If the UNet takes 512x512 input and produces 324x324 output, these values are correct:
-# TILE_H_INPUT, TILE_W_INPUT = 512, 512 # Set based on your dataset
 TILE_H_OUTPUT = 324
 TILE_W_OUTPUT = 324
 
@@ -72,7 +69,7 @@ STRIDE_W = TILE_W_OUTPUT
 
 # This is the overlap between adjacent *input* tiles required to produce continuous output.
 OVERLAP_H = TILE_H_INPUT - STRIDE_H # Should be 188
-OVERLAP_W = TILE_W_INPUT - STRIDE_W # Should be 188
+OVERLAP_W = TILE_H_INPUT - STRIDE_W # Should be 188
 
 
 print(f"UNet Input Tile Size (H, W): ({TILE_H_INPUT}, {TILE_W_INPUT})")
@@ -222,27 +219,6 @@ def save_mask(mask_array, output_path, filename):
     img.save(full_path)
     print(f"Predicted mask saved to: {full_path}")
 
-# --- Code for Calculating Intersection over Union (IoU) ---
-def calculate_iou(predicted_mask, ground_truth_mask):
-    """
-    Calculates the Intersection over Union (IoU) for binary segmentation.
-    """
-    if isinstance(predicted_mask, torch.Tensor):
-        predicted_mask = predicted_mask.cpu().numpy()
-    if isinstance(ground_truth_mask, torch.Tensor):
-        ground_truth_mask = ground_truth_mask.cpu().numpy()
-
-    # Ensure masks are strictly binary (0 or 1) for IoU calculation
-    predicted_mask = (predicted_mask > 0.5).astype(np.uint8) # Threshold probabilities
-    ground_truth_mask = (ground_truth_mask > 0).astype(np.uint8) # Ensure GT is 0/1
-
-    intersection = np.logical_and(predicted_mask, ground_truth_mask).sum()
-    union = np.logical_or(predicted_mask, ground_truth_mask).sum()
-
-    if union == 0:
-        # If both masks are empty (all zeros), IoU is 1.0 (perfect overlap of empty sets)
-        return 1.0
-    return intersection / union
 
 # --- 3. Overlap-Tile Inference Function ---
 def predict_with_overlap_tile(model, image_tensor, tile_h_input, tile_w_input, stride_h, stride_w,
@@ -367,7 +343,7 @@ print(f"Full Ground Truth mask numpy shape: {full_ground_truth_mask_np.shape}")
 # --- Call the functions for visualization, saving, and IoU ---
 # We'll pass the full image shape or a descriptive string to visualize_segmentation
 visualize_segmentation(full_input_image_np, full_ground_truth_mask_np, predicted_mask_np,
-                        image_info=f"({full_input_image_np.shape[0]}x{full_input_image_np.shape[1]})")
+                         image_info=f"({full_input_image_np.shape[0]}x{full_input_image_np.shape[1]})")
 
 output_directory = "./predictions_output_overlap_tile" # New directory for overlap-tile results
 filename = f"predicted_mask_overlap_tile_{full_input_image_np.shape[0]}x{full_input_image_np.shape[1]}.png"
@@ -375,5 +351,25 @@ save_mask(predicted_mask_np, output_directory, filename)
 
 iou_score = calculate_iou(predicted_mask_np, full_ground_truth_mask_np)
 print(f"IoU for Synthetic Large Image ({full_input_image_np.shape[0]}x{full_input_image_np.shape[1]}): {iou_score:.4f}")
+
+# --- NEW: Calculate and print Rand Index and Rand Error ---
+print("\n--- Instance Segmentation Metrics ---")
+
+# 1. Get instance masks from the binary predictions and ground truth
+# The ground truth mask from HeLaDataset is typically already instance-like (different values for different cells),
+# but converting it via get_instance_masks ensures consistency and proper labeling for skimage.
+# Ensure input to get_instance_masks is (H, W) or (D, H, W)
+gt_instance_mask = get_instance_masks(full_ground_truth_mask_tensor.squeeze())
+predicted_instance_mask = get_instance_masks(predicted_mask_full.squeeze())
+
+print(f"Ground Truth Instance Mask unique labels: {np.unique(gt_instance_mask)}")
+print(f"Predicted Instance Mask unique labels: {np.unique(predicted_instance_mask)}")
+
+
+# 2. Calculate Rand Index and Rand Error
+ri_score, re_score = calculate_rand_index_and_error(gt_instance_mask, predicted_instance_mask)
+
+print(f"Rand Index (RI): {ri_score:.4f}")
+print(f"Rand Error (RE = 1 - RI): {re_score:.4f}")
 
 print("Prediction, visualization, saving, and evaluation complete with overlap-tile strategy on synthetic image.")

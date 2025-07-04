@@ -6,3 +6,6 @@ albumentations
 streamlit
 tqdm
 scipy
+scikit-image
+torchaudio --index-url https://download.pytorch.org/whl/cu121 # Or your specific CUDA version/cpu
+numpy scipy matplotlib pillow networkx imageio tifffile packaging lazy-loader
