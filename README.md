@@ -4,14 +4,20 @@
 
 This project focuses on the implementation of a U-Net model for biomedical image segmentation and cell tracking, specifically applied to the challenging DIC-C2DH-HeLa dataset from the Cell Tracking Challenge. The primary objective is to closely reproduce and leverage key methodologies outlined in the original U-Net paper by Ronneberger et al. (2015) to achieve robust cell segmentation and accurate tracking.
 
+A conceptual diagram of the U-Net architecture that guides this implementation is shown below:
+
+![U-Net Architecture Overview](Figure_1.png)
+
 ## U-Net Paper Implementation Details (Phases 1-6)
 
 This section details the specific architectural and training enhancements incorporated into the U-Net model, aiming for a close reproduction of the original U-Net paper's methodology. These features were integrated into the codebase as part of the project's development.
 
 ### Phase 1: Advanced Loss Function - Pixel-wise Weight Map
 * **Objective:** To improve the separation of touching cells and address inherent class imbalance in segmentation tasks.
-* **Implementation:** A custom loss function was developed incorporating a pixel-wise weight map. This map dynamically assigns higher weights to pixels located near cell boundaries, calculated using distance transforms ($d_1$ to the nearest boundary and $d_2$ to the second nearest boundary), as explicitly described in Section 2, "Network Architecture," subsection "Loss function" of the U-Net paper.
+* **Implementation:** A custom loss function was developed incorporating a pixel-wise weight map. This map dynamically assigns higher weights to pixels located near cell boundaries, calculated using distance transforms ($d_1$ to the nearest boundary and $d_2$ to the second nearest boundary), as explicitly described in Section 2, "Network Architecture," subsection "Loss function" of the U-Net paper. An example of a generated weight map is shown below, where brighter regions indicate higher weights for pixel boundaries.
 * **Code Reference:** Implemented within `utils/dataset.py` for weight map generation (utilizing `scipy.ndimage.distance_transform_edt`) and integrated into the loss function in `train.py`.
+
+![Example of a Generated Weight Map](w45.png)
 
 ### Phase 2: Robust Data Augmentation - Elastic Deformations
 * **Objective:** To enhance the model's robustness and invariance to typical deformations observed in biomedical images, which is crucial given limited training data.
@@ -35,6 +41,8 @@ This section details the specific architectural and training enhancements incorp
     * **Upsampling:** The upsampling mechanism within the U-Net's expansive path was configured to use `ConvTranspose2d` (rather than bilinear interpolation), ensuring `bilinear=False` for the `Up` modules.
     * **Weight Initialization:** Explicit He (Kaiming Normal) weight initialization was applied to the model's layers to ensure proper scaling of activations.
 * **Code Reference:** Modifications primarily in `train.py` (optimizer, initialization) and `unet_model.py` (upsampling method).
+* **Training Progress:** The training performance during this phase is illustrated by the loss curve below.
+    ![Phase 5 Training Loss](phase5 5.png)
 
 ### Phase 6: Output Layer & Loss Function Refinement
 * **Objective:** To modify the network's output and loss function to strictly match the paper's implied two-class softmax setup for pixel-wise classification.
@@ -43,6 +51,8 @@ This section details the specific architectural and training enhancements incorp
     * **Loss Function:** The loss function in `train.py` was changed from `nn.BCEWithLogitsLoss` to `nn.CrossEntropyLoss(reduction='none')`.
     * **Mask Preparation:** Crucially, the `HeLaDataset` in `utils/dataset.py` was adjusted to ensure that the ground truth masks (`true_masks`) were loaded and formatted as `torch.long` tensors, containing pixel-wise class labels (e.g., `0` for background, `1` for foreground).
 * **Code Reference:** `unet_model.py`, `train.py`, and `utils/dataset.py`.
+* **Training Progress:** The training performance during this phase, showing validation loss, is illustrated below.
+    ![Phase 6 Training Loss](phase_6_4.png)
 
 ---
 
@@ -59,9 +69,9 @@ To obtain quantitative metrics (such as SEG, TRA, HOTA) for the trained U-Net mo
     ```bash
     python CTC_Evaluation_Scripts\py-ctcmetrics-main\ctc_metrics\scripts\evaluate.py --gt "CTC_Evaluation_Scripts\ground_truth\DIC-C2DH-HeLa\01_GT" --res "data\raw\processed\predictions\DIC-C2DH-HeLa\01_RES_INST_RESIZED"
     ```
-* **Observed Output & Results:** The evaluation script terminated with "Invalid results!" and did not compute any metrics (`{'Valid': 0, 'CHOTA': None, 'SEG': None, ...}`). This was accompanied by a cascade of `UserWarning` messages.
+* **Observed Output & Results:** The evaluation script terminated with "Invalid results!" and did not compute any metrics (`{'Valid': 0, 'CHOTA': None, 'SEG': None, ...}`). It was accompanied by numerous `UserWarning` messages.
 
-    * **[Image Placeholder: Include `image_75e103.png` or a similar screenshot of the `evaluation_output.txt` showing the initial warnings and "Invalid results!"]**
+    ![Initial Evaluation Errors and Warnings](image_75e103.png)
 
 * **Key Warnings & Conclusions:**
     1.  **`res_track.txt` Logical Inconsistencies:** Warnings like `UserWarning: Parent ends after child starts: [61 81 83 58] [58 80 82 0]` indicated structural or logical errors within the `res_track.txt` file concerning cell lineage definitions.
@@ -76,7 +86,7 @@ To obtain quantitative metrics (such as SEG, TRA, HOTA) for the trained U-Net mo
     ```
 * **Observed Output & Results:** The script executed successfully without the `res_track.txt`-related warnings, but the `SEG` (Segmentation Quality) metric consistently returned a score of **`0.0`**.
 
-    * **[Image Placeholder: Include a screenshot of the console output showing `SEG: 0.0` after running the command with `--seg`.]**
+    ![Segmentation-Only Evaluation Result (SEG: 0.0)](7 2.png) *(Note: This image shows a loss plot. If you have a screenshot of the console output specifically showing "SEG: 0.0", please replace this image with that for more direct relevance to this section.)*
 
 * **Conclusions:**
     * The `--seg` flag successfully allowed the evaluation to proceed by ignoring the inconsistencies related to `res_track.txt`.
@@ -92,19 +102,28 @@ To obtain quantitative metrics (such as SEG, TRA, HOTA) for the trained U-Net mo
 * **Troubleshooting Step 2: Predicted Mask Content & Format (Most Likely Cause):**
     * **Hypothesis:** The content or format of the predicted segmentation masks (`mXXX.tif`) was incompatible with `ctc_metrics`'s expectations for `SEG` calculation.
     * **Action:** A visual inspection of corresponding predicted (`mXXX.tif`) and ground truth (`man_segXXX.tif`) segmentation masks was performed. Visually, the segmentations appeared "all right."
-    * **[Image Placeholder: Side-by-side comparison image of `man_seg000.tif` (Ground Truth Instance Mask) and `m000.tif` (Your Predicted Segmentation Mask)]**
-        * *(For the image, the `man_seg000.tif` should typically display distinct cells, each represented by a unique non-zero grayscale value (instance ID), with background as 0. The `m000.tif` (your prediction) would ideally show corresponding cells. The diagnosis suggests that `m000.tif` likely shows cells as solid white (or a single value like 1) on a black background, indicating binary segmentation.)*
-    * **Final Conclusion:** Despite the visual appearance and confirmed ground truth, the most probable cause for the `SEG: 0.0` score is that your predicted `mXXX.tif` segmentation masks are formatted as **binary segmentations**. This means all pixels belonging to any cell are assigned a single non-zero value (e.g., `1`), while background is `0`. The `py-ctcmetrics` library, specifically for the `SEG` metric, typically requires **instance segmentation masks**, where each *individual cell* has a **unique integer ID** (e.g., cell 1 has pixels with value `1`, cell 2 has pixels with value `2`, etc.). Without this unique instance identification in your predictions, the tool cannot accurately perform per-instance overlap calculations, leading to a zero score.
+    * **[Image Placeholder: Insert a side-by-side comparison image of `man_seg000.tif` (Ground Truth Instance Mask) and `m000.tif` (Your Predicted Segmentation Mask)]**
+        * *(Description: The ground truth image should typically display distinct cells, each represented by a unique non-zero grayscale value (instance ID), with background as 0. The predicted image should be placed next to it. The diagnosis suggests that `m000.tif` likely shows cells as solid white (or a single value like 1) on a black background, indicating binary segmentation, which is the probable cause for SEG: 0.0.)*
+    * **Final Conclusion:** Despite the visual appearance and confirmed ground truth, the most probable cause for the `SEG: 0.0` score is that your predicted `mXXX.tif` segmentation masks are formatted as **binary segmentations**. This means all pixels belonging to any cell are assigned a single non-zero value (e.g., `1`), while background is `0`. The `py-ctcmetrics` library, specifically for the `SEG` metric, requires **instance segmentation masks**, where each *individual cell* has a **unique integer ID** (e.g., cell 1 has pixels with value `1`, cell 2 has pixels with value `2`, etc.) to accurately calculate overlap and identify individual instances. Without this unique instance identification in your predictions, the tool cannot perform a meaningful segmentation evaluation.
+
+### Sample Prediction Visualizations
+
+Here are examples of segmentation and tracking results generated by the model:
+
+* **Example Segmentation Result:**
+    ![Segmentation Output Example](24324.png)
+* **Example Tracking Visualization:**
+    ![Tracking Output Example](track025.jpg)
 
 ---
 
 ## Conclusions & Future Work (Phase 8: Refinement)
 
-While the U-Net model has been implemented with significant adherence to the original paper's methodologies, the primary challenges arose during the evaluation of its output using the `py-ctcmetrics` tool.
+While the U-Net model has been implemented with significant adherence to the original paper's methodologies, the primary challenges arose during the quantitative evaluation of its output using the `py-ctcmetrics` tool.
 
 * **Key Challenges Identified:**
     1.  **Inconsistent `res_track.txt`:** The generated tracking data file (`res_track.txt`) exhibited both logical errors in lineage (e.g., parent-child inconsistencies) and, more importantly, a severe mismatch where many cell labels found in the segmentation masks were not correctly referenced within the track file. This prevented any meaningful `TRA` and `HOTA` evaluation.
-    2.  **Binary vs. Instance Segmentation Format:** The most critical issue for segmentation evaluation (`SEG: 0.0`) is the format of the predicted `mXXX.tif` segmentation masks. They appear to be binary masks, whereas `py-ctcmetrics` requires instance masks for accurate segmentation quality assessment.
+    2.  **Binary vs. Instance Segmentation Format:** The most critical issue for segmentation evaluation (`SEG: 0.0`) is the format of the predicted `mXXX.tif` segmentation masks. They appear to be binary masks, whereas `py-ctcmetrics` requires instance masks for accurate `SEG` metric calculation. This is the most probable reason for the `SEG: 0.0` score.
 
 * **Recommendations for Future Work:**
     1.  **Generate Instance Masks:** The most immediate and crucial step is to modify the post-processing of your U-Net model's output (e.g., within `predict.py` or `track_cells.py`) to generate **instance segmentation masks**. This involves identifying individual connected components in your binary output and assigning each a unique integer ID. Libraries like `scikit-image`'s `label` function are excellent for this.
@@ -129,7 +148,7 @@ By addressing these identified data formatting and consistency issues in your ou
     * Command to execute `train.py` (e.g., `python train.py --epochs 50 --batch_size 4`).
     * Brief explanation of key training parameters.
 * **Prediction:**
-    * Command to run `predict.py` to generate segmentation masks (`mXXX.tif`) from a trained model.
+    * Command to run `predict.py` to generate segmentation masks (`mXXX.tif`).
 * **Evaluation:**
     * Commands to run the `py-ctcmetrics` evaluation, similar to those discussed in the "Evaluation Process & Challenges" section above. (Recommend updating these commands to reflect usage with corrected outputs).
 
