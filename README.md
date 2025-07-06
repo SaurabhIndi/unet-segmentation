@@ -113,7 +113,7 @@ To obtain quantitative metrics (such as SEG, TRA, HOTA) for the trained U-Net mo
     * **Action:** A visual inspection of corresponding predicted (`mXXX.tif`) and ground truth (`man_segXXX.tif`) segmentation masks was performed.
     * **Observation:** The provided ground truth binarized image (if representing the expected input to `SEG` metric) and predicted masks suggest a format mismatch. The `SEG` metric typically requires instance segmentation masks (each cell uniquely labeled with an integer ID), not binary masks (all cells represented by a single non-zero value).
         * Example of a binarized ground truth:
-            ![Binarized Ground Truth Example](visualizations\comparison_t000_binarized_gt.png)
+            ![Binarized Ground Truth Example](visualizations/comparison_t000_binarized_gt.png)
         * Example of a predicted mask:
             ![Predicted Mask Example](predictions/predicted_mask.png)
             ![Predicted Mask Example (Frame 42)](predictions_output/predicted_mask_42.png)
