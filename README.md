@@ -51,7 +51,7 @@ This section details the specific architectural and training enhancements incorp
     * **Weight Initialization:** Explicit He (Kaiming Normal) weight initialization was applied to the model's layers to ensure proper scaling of activations.
 * **Code Reference:** Modifications primarily in `train.py` (optimizer, initialization) and `unet_model.py` (upsampling method).
 * **Training Progress:** The training performance during this phase is illustrated by the loss curve below.
-    ![Phase 5 Training Loss](images/phase5_5.png)
+    ![Phase 5 Training Loss](images/phase5 5.png)
 
 ### Phase 6: Output Layer & Loss Function Refinement
 * **Objective:** To modify the network's output and loss function to strictly match the paper's implied two-class softmax setup for pixel-wise classification.
@@ -61,7 +61,7 @@ This section details the specific architectural and training enhancements incorp
     * **Mask Preparation:** Crucially, the `HeLaDataset` in `utils/dataset.py` was adjusted to ensure that the ground truth masks (`true_masks`) were loaded and formatted as `torch.long` tensors, containing pixel-wise class labels (e.g., `0` for background, `1` for foreground).
 * **Code Reference:** `unet_model.py`, `train.py`, and `utils/dataset.py`.
 * **Training Progress:** The training performance during this phase, showing validation loss, is illustrated below.
-    ![Phase 6 Training Loss](images/phase_6_4.png)
+    ![Phase 6 Training Loss](images/phase 6 4.png)
 
 ---
 
@@ -95,7 +95,7 @@ To obtain quantitative metrics (such as SEG, TRA, HOTA) for the trained U-Net mo
     ```
 * **Observed Output & Results:** The script executed successfully without the `res_track.txt`-related warnings, but the `SEG` (Segmentation Quality) metric consistently returned a score of **`0.0`**.
 
-    ![Segmentation-Only Evaluation Result (SEG: 0.0) - Loss Plot](images/7_2.png) *(Note: This image shows a loss plot. If you have a screenshot of the console output specifically showing "SEG: 0.0", please replace this image with that for more direct relevance to this section.)*
+    ![Segmentation-Only Evaluation Result (SEG: 0.0) - Loss Plot](images/7 2.png) *(Note: This image shows a loss plot. If you have a screenshot of the console output specifically showing "SEG: 0.0", please replace this image with that for more direct relevance to this section.)*
 
 * **Conclusions:**
     * The `--seg` flag successfully allowed the evaluation to proceed by ignoring the inconsistencies related to `res_track.txt`.
