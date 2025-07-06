@@ -115,7 +115,7 @@ To obtain quantitative metrics (such as SEG, TRA, HOTA) for the trained U-Net mo
         * Example of a binarized ground truth:
             ![Binarized Ground Truth Example](visualizations/comparison_t000_binarized_gt.jpg)
         * Example of a predicted mask:
-            ![Predicted Mask Example](predicted_mask.png)
+            ![Predicted Mask Example](predictions/predicted_mask.png)
             ![Predicted Mask Example (Frame 42)](predictions_output/predicted_mask_42.png)
     * **Final Conclusion:** Despite the visual appearance and confirmed ground truth presence, the most probable cause for the `SEG: 0.0` score is that your predicted `mXXX.tif` segmentation masks are formatted as **binary segmentations**. This means all pixels belonging to any cell are assigned a single non-zero value (e.g., `1`), while background is `0`. The `py-ctcmetrics` library, specifically for the `SEG` metric, requires **instance segmentation masks**, where each *individual cell* has a **unique integer ID** (e.g., cell 1 has pixels with value `1`, cell 2 has pixels with value `2`, etc.) to accurately calculate overlap and identify individual instances. Without this unique instance identification in your predictions, the tool cannot perform a meaningful segmentation evaluation.
 
