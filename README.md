@@ -120,6 +120,7 @@ This image compares the original image, binarized ground truth, and the U-Net's 
 **Training Loss Plot (Illustrative):**
 This plot shows the training and validation loss decreasing over epochs, indicating the model is learning.
 ![Phase 5 Training Loss](images/phase5 5.png)
+
 -----
 
 ### Phase 6: Output Layer & Loss Function Refinement (Implemented ✅)
@@ -245,7 +246,7 @@ python scripts/predict.py --checkpoint ./checkpoints/best_unet_model_epoch_XX.pt
 
 This will save instance masks to `data/raw/processed/predictions/DIC-C2DH-HeLa/01_RES_INST/`.
 
-
+ ![Example](data/raw/processed/predictions/DIC-C2DH-HeLa/01_RES_INST/m001.tif)
 
 ### Step 6: Track Cells
 
@@ -256,6 +257,7 @@ python scripts/track.py --sequence_name 01
 ```
 
 This will generate the `res_track.txt` file in `data/raw/processed/predictions/DIC-C2DH-HeLa/01/`, which contains the tracking results in CTC format.
+ ![Example](data/raw/processed/predictions/DIC-C2DH-HeLa/01/res_track.txt)
 
 ### Step 7: Visualize Segmentations and Tracks
 
@@ -266,10 +268,10 @@ python scripts/visualize.py
 ```
 
 Visualizations will be saved to `data/raw/processed/predictions/DIC-C2DH-HeLa/01/visualizations/`.
-
+ 
 **Example Track Visualization:**
 This image shows original frames with overlaid segmentation masks and track IDs, allowing for visual inspection of tracking performance.
-
+ ![Example](data/raw/processed/predictions/DIC-C2DH-HeLa/01/visualizations/vis_frame_001.png)
 
 ### Step 8: Evaluate Segmentation and Tracking
 
