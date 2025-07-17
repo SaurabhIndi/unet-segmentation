@@ -7,6 +7,7 @@ This project implements a **U-Net** convolutional neural network for **segmentat
 The U-Net model is specifically trained for **binary foreground/background segmentation**. While the ground truth data may contain instance labels, the model is designed to predict whether a pixel belongs to *any* cell (foreground) or to the background. Instance separation is subsequently handled during post-processing and tracking.
 
 ![U-Net Architecture Overview](Figure_1.png)
+
 -----
 
 ## Project Structure 📁
@@ -53,6 +54,7 @@ The project incorporates several advanced techniques to achieve robust and accur
 **Example Weight Map:**
 The weight map highlights cell boundaries and regions where cells are close, assigning higher values (brighter pixels) to these critical areas.
 ![Example of a Generated Weight Map](images/w45.png)
+
 -----
 
 ### Phase 2: Robustness - Data Augmentation (Implemented ✅)
@@ -65,10 +67,12 @@ The weight map highlights cell boundaries and regions where cells are close, ass
       * **`scripts/visualize_augmentation.py`**: Provides a dedicated script to visually verify that the elastic deformations are being applied correctly to both images and masks.
 
 **Example of Elastic Deformation:**
+
 This image demonstrates how elastic deformation subtly transforms the original image and its mask, creating new training samples.
 ![Additional Figure 1](images/Figure_1123.png)
 
 ![Additional Figure 2](images/Figure_1(1).png)
+
 -----
 
 ### Phase 3: Architectural Fidelity - Unpadded Convolutions & Cropping (Implemented ✅)
@@ -80,6 +84,7 @@ This image demonstrates how elastic deformation subtly transforms the original i
 
 **U-Net Architecture (Illustrative):**
 This diagram shows how the U-Net architecture includes operations that reduce image dimensions, leading to a smaller output.
+![U-net Architecture](images/unetmodelimage.webp)
 
 -----
 
