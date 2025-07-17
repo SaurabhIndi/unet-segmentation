@@ -1,7 +1,3 @@
-Sure, I'll provide the `README.md` with the images included for each respective phase, as you had in your previous version.
-
------
-
 # U-Net Based Cell Segmentation and Tracking
 
 ## Overview 🚀
