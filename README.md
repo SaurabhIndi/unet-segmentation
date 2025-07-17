@@ -1,3 +1,7 @@
+Sure, I'll provide the `README.md` with the images included for each respective phase, as you had in your previous version.
+
+-----
+
 # U-Net Based Cell Segmentation and Tracking
 
 ## Overview 🚀
@@ -49,6 +53,9 @@ The project incorporates several advanced techniques to achieve robust and accur
       * **`utils/dataset.py`**: Responsible for **loading the pre-calculated weight maps** alongside images and masks, making them available to the training loop.
       * **`scripts/train.py`**: Utilizes the `WeightedCrossEntropyLoss` during model training.
 
+**Example Weight Map:**
+The weight map highlights cell boundaries and regions where cells are close, assigning higher values (brighter pixels) to these critical areas.
+
 -----
 
 ### Phase 2: Robustness - Data Augmentation (Implemented ✅)
@@ -60,6 +67,9 @@ The project incorporates several advanced techniques to achieve robust and accur
       * **`scripts/train.py`**: Enables and configures elastic deformation parameters (`ELASTIC_ALPHA`, `ELASTIC_SIGMA`) when initializing the `HeLaDataset` for training.
       * **`scripts/visualize_augmentation.py`**: Provides a dedicated script to visually verify that the elastic deformations are being applied correctly to both images and masks.
 
+**Example of Elastic Deformation:**
+This image demonstrates how elastic deformation subtly transforms the original image and its mask, creating new training samples.
+
 -----
 
 ### Phase 3: Architectural Fidelity - Unpadded Convolutions & Cropping (Implemented ✅)
@@ -68,6 +78,9 @@ The project incorporates several advanced techniques to achieve robust and accur
   * **Implementation:**
       * **`models/unet_model.py`**: The U-Net architecture is built with convolutions that inherently reduce image dimensions. Each convolution layer is not padded, leading to a smaller output size relative to the input at each stage.
       * **`scripts/train.py`**: Includes a `center_crop_tensor` helper function. During the training and validation loops, this function is used to **crop the ground truth masks (and weight maps during training)** to precisely match the spatial dimensions of the U-Net's output logits. This ensures that the loss is calculated only on the valid predicted region.
+
+**U-Net Architecture (Illustrative):**
+This diagram shows how the U-Net architecture includes operations that reduce image dimensions, leading to a smaller output.
 
 -----
 
@@ -82,6 +95,9 @@ The project incorporates several advanced techniques to achieve robust and accur
       * **`scripts/evaluate.py`**: Uses these metrics to quantify the performance of the trained U-Net on a test sequence. It calculates IoU (pixel-wise), and crucially, Rand Index and Rand Error for instance-level comparison.
       * **Future Metric (Placeholder):** A placeholder for **Warping Error** in `utils/metrics.py` indicates a potential future enhancement for more comprehensive temporal tracking evaluation.
 
+**Segmentation Output Visualization:**
+This image compares the original image, binarized ground truth, and the U-Net's predicted segmentation, allowing for visual assessment of segmentation quality.
+
 -----
 
 ### Phase 5: Core Architectural Adherence & Retraining (Implemented ✅)
@@ -93,6 +109,9 @@ The project incorporates several advanced techniques to achieve robust and accur
           * Initializes U-Net weights using **Kaiming Normal initialization** for convolutional layers and constant initialization for Batch Normalization layers, following best practices for neural network training.
           * Provides the training loop with an optimizer (`SGD` with momentum) and checkpoint saving functionality based on validation loss, enabling retraining and model selection.
           * The training process confirms adherence to the U-Net architecture.
+
+**Training Loss Plot (Illustrative):**
+This plot shows the training and validation loss decreasing over epochs, indicating the model is learning.
 
 -----
 
@@ -230,6 +249,9 @@ python scripts/visualize.py
 ```
 
 Visualizations will be saved to `data/raw/processed/predictions/DIC-C2DH-HeLa/01/visualizations/`.
+
+**Example Track Visualization:**
+This image shows original frames with overlaid segmentation masks and track IDs, allowing for visual inspection of tracking performance.
 
 ### Step 8: Evaluate Segmentation and Tracking
 
