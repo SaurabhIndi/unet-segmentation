@@ -246,7 +246,7 @@ python scripts/predict.py --checkpoint ./checkpoints/best_unet_model_epoch_XX.pt
 
 This will save instance masks to `data/raw/processed/predictions/DIC-C2DH-HeLa/01_RES_INST/`.
 
- ![Example](data/raw/processed/predictions/DIC-C2DH-HeLa/01_RES_INST/m001.tif)
+ ![Example](data/raw/processed/predictions/DIC-C2DH-HeLa/01_RES_INST/m008.tif)
 
 ### Step 6: Track Cells
 
