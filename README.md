@@ -6,6 +6,7 @@ This project implements a **U-Net** convolutional neural network for **segmentat
 
 The U-Net model is specifically trained for **binary foreground/background segmentation**. While the ground truth data may contain instance labels, the model is designed to predict whether a pixel belongs to *any* cell (foreground) or to the background. Instance separation is subsequently handled during post-processing and tracking.
 
+![U-Net Architecture Overview](Figure_1.png)
 -----
 
 ## Project Structure 📁
@@ -51,7 +52,7 @@ The project incorporates several advanced techniques to achieve robust and accur
 
 **Example Weight Map:**
 The weight map highlights cell boundaries and regions where cells are close, assigning higher values (brighter pixels) to these critical areas.
-
+![Example of a Generated Weight Map](images/w45.png)
 -----
 
 ### Phase 2: Robustness - Data Augmentation (Implemented ✅)
@@ -65,7 +66,9 @@ The weight map highlights cell boundaries and regions where cells are close, ass
 
 **Example of Elastic Deformation:**
 This image demonstrates how elastic deformation subtly transforms the original image and its mask, creating new training samples.
+![Additional Figure 1](images/Figure_1123.png)
 
+![Additional Figure 2](images/Figure_1(1).png)
 -----
 
 ### Phase 3: Architectural Fidelity - Unpadded Convolutions & Cropping (Implemented ✅)
@@ -93,6 +96,9 @@ This diagram shows how the U-Net architecture includes operations that reduce im
 
 **Segmentation Output Visualization:**
 This image compares the original image, binarized ground truth, and the U-Net's predicted segmentation, allowing for visual assessment of segmentation quality.
+![Predicted Mask using Overlap-Tile Strategy (1024x1024)](predictions_output_overlap_tile/predicted_mask_overlap_tile_1024x1024.png)
+
+![Predicted Mask using Overlap-Tile Strategy (Frame 42)](predictions_output_overlap_tile/predicted_mask_overlap_tile_42.png)
 
 -----
 
@@ -108,7 +114,7 @@ This image compares the original image, binarized ground truth, and the U-Net's 
 
 **Training Loss Plot (Illustrative):**
 This plot shows the training and validation loss decreasing over epochs, indicating the model is learning.
-
+![Phase 5 Training Loss](images/phase5 5.png)
 -----
 
 ### Phase 6: Output Layer & Loss Function Refinement (Implemented ✅)
@@ -118,7 +124,7 @@ This plot shows the training and validation loss decreasing over epochs, indicat
       * **`models/unet_model.py`**: The `UNet` model is initialized with `n_classes=2`, meaning its final convolutional layer outputs two channels (logits for background and foreground).
       * **`utils/dataset.py`**: The `__getitem__` method performs a **critical binarization step** for the ground truth masks. It loads the `man_seg*.tif` files (which contain instance labels) and converts them into **binary foreground/background masks** (`(mask_np > 0).astype(np.uint8)`). These binarized masks are then cast to `torch.long`, the required data type for targets in `torch.nn.CrossEntropyLoss` (used by `WeightedCrossEntropyLoss`).
       * **`utils/losses.py`**: The `WeightedCrossEntropyLoss` expects raw logits (`N, C, H, W`) as inputs and `torch.long` targets (`N, H, W`), aligning perfectly with the output of the U-Net and the processed masks from the dataset.
-
+![Phase 6 Training Loss](images/phase 6 4.png)
 -----
 
 ## Setup and Usage ⚙️
@@ -205,6 +211,11 @@ python scripts/inference.py --checkpoint ./checkpoints/best_unet_model_epoch_XX.
 ```
 
 This will save a binary segmentation mask to `./predictions/predicted_mask.png`.
+        * Example of a predicted mask:
+
+            ![Predicted Mask Example](predictions/predicted_mask.png)
+
+            ![Predicted Mask Example (Frame 42)](predictions_output/predicted_mask_42.png)
 
 ### Step 4: Visualize Single Prediction
 
@@ -215,6 +226,9 @@ python scripts/visualize_prediction.py
 ```
 
 This will save a comparison image to `./visualizations/comparison_t000_binarized_gt.png` and display it.
+        * Example of a binarized ground truth:
+
+            ![Binarized Ground Truth Example](visualizations/comparison_t000_binarized_gt.png)
 
 ### Step 5: Generate Instance Masks for a Sequence
 
@@ -225,6 +239,8 @@ python scripts/predict.py --checkpoint ./checkpoints/best_unet_model_epoch_XX.pt
 ```
 
 This will save instance masks to `data/raw/processed/predictions/DIC-C2DH-HeLa/01_RES_INST/`.
+
+
 
 ### Step 6: Track Cells
 
@@ -248,6 +264,7 @@ Visualizations will be saved to `data/raw/processed/predictions/DIC-C2DH-HeLa/01
 
 **Example Track Visualization:**
 This image shows original frames with overlaid segmentation masks and track IDs, allowing for visual inspection of tracking performance.
+
 
 ### Step 8: Evaluate Segmentation and Tracking
 
