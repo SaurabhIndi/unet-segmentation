@@ -102,7 +102,7 @@ This diagram shows how the U-Net architecture includes operations that reduce im
 **Segmentation Output Visualization:**
 This image compares the original image, binarized ground truth, and the U-Net's predicted segmentation, allowing for visual assessment of segmentation quality.
 ![Predicted Mask using Overlap-Tile Strategy (1024x1024)](predictions_output_overlap_tile/predicted_mask_overlap_tile_1024x1024.png)
-
+![1024*1024](images/phase5 5.png)
 ![Predicted Mask using Overlap-Tile Strategy (Frame 42)](predictions_output_overlap_tile/predicted_mask_overlap_tile_42.png)
 
 -----
@@ -116,10 +116,6 @@ This image compares the original image, binarized ground truth, and the U-Net's 
           * Initializes U-Net weights using **Kaiming Normal initialization** for convolutional layers and constant initialization for Batch Normalization layers, following best practices for neural network training.
           * Provides the training loop with an optimizer (`SGD` with momentum) and checkpoint saving functionality based on validation loss, enabling retraining and model selection.
           * The training process confirms adherence to the U-Net architecture.
-
-**Training Loss Plot (Illustrative):**
-This plot shows the training and validation loss decreasing over epochs, indicating the model is learning.
-![Phase 5 Training Loss](images/phase5 5.png)
 
 -----
 
