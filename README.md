@@ -20,7 +20,7 @@ This section details the specific architectural and training enhancements incorp
 ### Phase 1: Advanced Loss Function - Pixel-wise Weight Map
 * **Objective:** To improve the separation of touching cells and address inherent class imbalance in segmentation tasks.
 * **Implementation:** A custom loss function was developed incorporating a pixel-wise weight map. This map dynamically assigns higher weights to pixels located near cell boundaries, calculated using distance transforms ($d_1$ to the nearest boundary and $d_2$ to the second nearest boundary), as explicitly described in Section 2, "Network Architecture," subsection "Loss function" of the U-Net paper. An example of a generated weight map is shown below, where brighter regions indicate higher weights for pixel boundaries, emphasizing cell borders.
-* **Code Reference:** Implemented within `utils/dataset.py` for weight map generation (utilizing `scipy.ndimage.distance_transform_edt`) and integrated into the loss function in `train.py`.
+* **Code Reference:** Implemented within `scripts/preprocess_data.py` for weight map generation (utilizing `scipy.ndimage.distance_transform_edt`) and integrated into the loss function in `train.py`.
 
 ![Example of a Generated Weight Map](images/w45.png)
 
